@@ -208,7 +208,10 @@ class ACB:
 						if EncodeExt[encodeType] == "ADX":
 							audio.decrypt(keycode)
 						elif EncodeExt[encodeType] == "HCA":
-							audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
+							if awb.Key:
+								audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
+							else:
+								audio.Crypt(keycode)
 					audio.write_right(filename)
 				elif awb is not None:
 					with open(filename, "wb") as f:
@@ -747,7 +750,10 @@ class ACB:
 						if EncodeExt[encodeType] == "ADX":
 							audio.decrypt(keycode)
 						elif EncodeExt[encodeType] == "HCA":
-							audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
+							if awb.Key:
+								audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
+							else:
+								audio.Crypt(keycode)
 					audio.write_right(filename)
 				elif awb is not None:
 					with open(filename, "wb") as f:
