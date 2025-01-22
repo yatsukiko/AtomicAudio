@@ -589,7 +589,7 @@ class ACB:
 		})
 		return cmdRow
 
-	def AddSequenceRow(self, trackRows, cmdRow=0xFFFF):
+	def AddSequenceRow(self, trackRows, cmdRow=0xFFFF, seqType=0):
 		trackBytes = list()
 		for trackRow in trackRows:
 			trackBytes.append((trackRow >> 8) & 0xFF)
@@ -610,7 +610,7 @@ class ACB:
 			"ActionTrackStartIndex": 0xFFFF,
 			"NumActionTracks": 0,
 			"TrackValues": RefData(),
-			"Type": 0, # does this need to match the cue Type?
+			"Type": seqType,
 			"ControlWorkArea1": 1,
 			"ControlWorkArea2": 1,
 		})
@@ -647,24 +647,27 @@ class ACB:
 		})
 		return cueNameRow
 
-	def AddWaveformAndCue(self, streaming, newBytes, newType, cueName=None, cueId=None, seqCmdBytes=None):
-		# new AWB entry
-		awbId = self.AddAwbEntry(streaming, newBytes)
-		# new Waveform row
-		length, waveRow = self.AddWaveformRow(streaming, ExtEncode[newType].value, awbId)
-		# new Synth row
-		synthRow = self.AddSynthRow(waveRow)
-		# new Command row
-		trackEventRow = self.AddSynthCommandRow(synthRow)
-		#trackEventRow = self.AddLinkCommandRow(cueId)
-		# new Track row
-		trackRow = self.AddTrackRow(trackEventRow)
+	def AddWaveformAndCue(self, streaming, newBytesList, newType, cueName=None, cueId=None, seqCmdBytes=None, seqType=0):
+		trackRows = list()
+		for newBytes in newBytesList:
+			# new AWB entry
+			awbId = self.AddAwbEntry(streaming, newBytes)
+			# new Waveform row
+			length, waveRow = self.AddWaveformRow(streaming, ExtEncode[newType].value, awbId)
+			# new Synth row
+			synthRow = self.AddSynthRow(waveRow)
+			# new Command row
+			trackEventRow = self.AddSynthCommandRow(synthRow)
+			#trackEventRow = self.AddLinkCommandRow(cueId)
+			# new Track row
+			trackRow = self.AddTrackRow(trackEventRow)
+			trackRows.append(trackRow)
 		# new Sequence Command row
 		if seqCmdBytes is None:
 			seqCmdBytes = list(self.Tables["SeqCommand"].GetRowField(0, "Command").Value.Value)
 		seqCmdRow = self.AddSeqCommandRow(seqCmdBytes)
 		# new Sequence row
-		seqRow = self.AddSequenceRow([trackRow], cmdRow=seqCmdRow)
+		seqRow = self.AddSequenceRow(trackRows, cmdRow=seqCmdRow, seqType=seqType)
 		# new Cue row
 		cueId, cueRow = self.AddCueRow(length, seqRow, cueId=cueId)
 		# new CueName row

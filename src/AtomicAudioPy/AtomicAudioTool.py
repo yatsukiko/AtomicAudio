@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 
 from pathlib import Path
 
-from ACB import ACB, ExtEncode
+from ACB import ACB, ExtEncode, SequenceType
 from ADX import ADX
 from HCA import HCA
 from UTFAFS import UTF
@@ -32,10 +32,10 @@ def main():
 	#extract_parser.add_argument("--output-format", required=False, help="If provided, will try to convert the extracted files to the specified audio format.")
 	extract_parser.add_argument("--print-info", action=argparse.BooleanOptionalAction, help="If provided, will print ACB info alongside extraction")
 
-	wave_parser = subparsers.add_parser("replace_waveform", help="Use the provided audio file to replace the waveform at the given AWB ID. Currently only supports ADX.")
-	wave_parser.add_argument("--awb-id", type=int, required=True, help="AWB ID of waveform to be replaced.")
-	wave_parser.add_argument("--new-audio-type", required=False, default="ADX", help="Name of the audio format of the new file. Accepted values: {}".format(", ".join(x.name for x in ExtEncode)))
-	wave_parser.add_argument("--new-audio-path", required=True, help="Path to audio file that will replace existing one.")
+	wave_parser = subparsers.add_parser("replace_waveform", help="Use the provided audio files to replace the waveforms at the given AWB IDs. Currently only supports ADX.")
+	wave_parser.add_argument("--awb-id", type=int, required=True, action="append", help="AWB ID of waveform to be replaced.")
+	wave_parser.add_argument("--new-audio-type", required=False, choices=[x.name for x in ExtEncode], default="ADX", help="Name of the audio format of the new file.")
+	wave_parser.add_argument("--new-audio-path", required=True, action="append", help="Path to audio file that will replace existing one.")
 	#wave_parser.add_argument("--convert-input", action=argparse.BooleanOptionalAction, help="If provided, will convert input audio file to ADX.")
 	wave_parser.add_argument("--key-code", type=int, required=False, help="If provided, will encrypt input ADX file.") # (whether ADX at source or converted via --convert-input).")
 	wave_parser.add_argument("--input-acb-path", required=True, help="Path to ACB file to modify.")
@@ -43,11 +43,12 @@ def main():
 	wave_parser.add_argument("--output-acb-path", required=False, help="Optional path to modified ACB file. If omitted, will modify input ACB in place.")
 	wave_parser.add_argument("--output-awb-path", required=False, help="Optional path to modified streaming AWB file. If omitted, will modify input AWB in place.")
 
-	cue_parser = subparsers.add_parser("add_simple_cue", help="Use the provided audio file to create a new AWB entry and a simple cue that points to it.")
+	cue_parser = subparsers.add_parser("add_simple_cue", help="Use the provided audio files to create new AWB entries and a simple cue that points to them.")
 	cue_parser.add_argument("--cue-name", required=False, help="Name of cue to be added. If omitted, will default to \"Cue{cue_id}\".")
 	cue_parser.add_argument("--cue-id", type=int, required=False, help="Cue ID of new cue. If omitted, will pick next available ID.")
-	cue_parser.add_argument("--new-audio-type", required=False, default="ADX", help="Name of the audio format of the new file. Accepted values: {}".format(", ".join(x.name for x in ExtEncode)))
-	cue_parser.add_argument("--new-audio-path", required=True, help="Path to audio file that will replace existing one.")
+	cue_parser.add_argument("--sequence-type", required=False, choices=[x.name for x in SequenceType], default="Polyphonic", help="Name of the sequence type for the cue.")
+	cue_parser.add_argument("--new-audio-type", required=False, choices=[x.name for x in ExtEncode], default="ADX", help="Name of the audio format of the new file.")
+	cue_parser.add_argument("--new-audio-path", required=True, action="append", help="Path to audio file that will replace existing one.")
 	#cue_parser.add_argument("--convert-input", action=argparse.BooleanOptionalAction, help="If provided, will convert input audio file to ADX.")
 	cue_parser.add_argument("--key-code", type=int, required=False, help="If provided, will encrypt input ADX file.") # (whether ADX at source or converted via --convert-input).")
 	cue_parser.add_argument("--input-acb-path", required=True, help="Path to ACB file to modify.")
@@ -76,6 +77,9 @@ def main():
 		os.makedirs(args.output_directory, exist_ok=True)
 		acb.Extract(args.output_directory, keycode=args.key_code, printing=args.print_info, nameByCue=args.name_by_cue)
 	elif args.action == "replace_waveform" or args.action == "add_simple_cue":
+		if args.action == "replace_waveform":
+			assert len(args.awb_id) == len(args.new_audio_path)
+
 		acb = ACB(args.input_acb_path, awbPath=args.input_awb_path)
 
 		if args.output_acb_path is None:
@@ -86,25 +90,31 @@ def main():
 		streaming = args.input_awb_path is not None
 		awb = acb.StreamAwbStruct if streaming else acb.MemoryAwbStruct
 
-		with open(args.new_audio_path, "rb") as f:
-			inputBytes = f.read()
+		inputBytesList = list()
+		for path in args.new_audio_path:
 
-		if args.key_code is not None:
-			if args.new_audio_type == "ADX":
-				adx = ADX()
-				adx.frombytes(inputBytes)
-				adx.encrypt(args.key_code, codingType=9)
-				inputBytes = adx.tobytes()
-			elif args.new_audio_type == "HCA":
-				hca = HCA()
-				hca.frombytes(inputBytes)
-				hca.Crypt(args.key_code * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
-				inputBytes = hca.tobytes()
+			with open(path, "rb") as f:
+				inputBytes = f.read()
+
+			if args.key_code is not None:
+				if args.new_audio_type == "ADX":
+					adx = ADX()
+					adx.frombytes(inputBytes)
+					adx.encrypt(args.key_code, codingType=9)
+					inputBytes = adx.tobytes()
+				elif args.new_audio_type == "HCA":
+					hca = HCA()
+					hca.frombytes(inputBytes)
+					hca.Crypt(args.key_code * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
+					inputBytes = hca.tobytes()
+
+			inputBytesList.append(inputBytes)
 
 		if args.action == "replace_waveform":
-			acb.ReplaceWaveform(args.awb_id, streaming, inputBytes, replacementType=ExtEncode[args.new_audio_type].value)
+			for awb_id, inputBytes in zip(args.awb_id, inputBytesList):
+				acb.ReplaceWaveform(awb_id, streaming, inputBytes, replacementType=ExtEncode[args.new_audio_type].value)
 		elif args.action == "add_simple_cue":
-			acb.AddWaveformAndCue(streaming, inputBytes, args.new_audio_type, args.cue_name, args.cue_id)
+			acb.AddWaveformAndCue(streaming, inputBytesList, args.new_audio_type, args.cue_name, args.cue_id, seqType=SequenceType[args.sequence_type].value)
 
 		acb.AcbStruct.write_right(args.output_acb_path)
 		if args.output_awb_path is not None:
