@@ -13,18 +13,18 @@ from UTFAFS import UTF
 def main():
 
 	parser = argparse.ArgumentParser(prog="AtomicAudioTool", description="Basic editing utility for Cri ACB project files.")
-	subparsers = parser.add_subparsers(dest="action", help="Specify whether you want to do print_info, to_xml, extract_audio, replace_waveform, or add_simple_cue.")
-
-	info_parser = subparsers.add_parser("print_info", help="Print detailed information about the cues inside the ACB.")
-	info_parser.add_argument("-ic", "--input-acb-path", required=True, help="Path to ACB file to print.")
-	info_parser.add_argument("-iw", "--input-awb-path", required=False, help="Path to streaming AWB file to print.")
+	subparsers = parser.add_subparsers(dest="action", help="Specify whether you want to do to_xml, print_info, extract_audio, replace_waveform, or add_simple_cue.")
 
 	xml_parser = subparsers.add_parser("to_xml", help="Deserialize an ACB or ACF as XML.")
 	xml_parser.add_argument("-i", "--input-utf", required=True, help="Path to ACB or ACF file to deserialize.")
 	xml_parser.add_argument("-o", "--output-xml", required=False, help="Path to save output XML to. If not provided, will just print the XML to the console.")
 
+	info_parser = subparsers.add_parser("print_info", help="Print detailed information about the cues inside the ACB.")
+	info_parser.add_argument("-i", "-ic", "--input-acb-path", required=True, help="Path to ACB file to print.")
+	info_parser.add_argument("-iw", "--input-awb-path", required=False, help="Path to streaming AWB file to print.")
+
 	extract_parser = subparsers.add_parser("extract_audio", help="Extract (and possibly decrypt) the audio files inside the ACB and AWB(s) into a directory.")
-	extract_parser.add_argument("-ic", "--input-acb-path", required=True, help="Path to ACB file to extract from.")
+	extract_parser.add_argument("-i", "-ic", "--input-acb-path", required=True, help="Path to ACB file to extract from.")
 	extract_parser.add_argument("-iw", "--input-awb-path", required=False, help="Path to streaming AWB file to extract from.")
 	extract_parser.add_argument("-o", "--output-directory", required=False, help="Optional output directory for extracted audio, which will be created if it doesn't already exist. If not provided, will create a directory of the same base path + name as the input ACB.")
 	extract_parser.add_argument("-n", "--name-by-cue", action=argparse.BooleanOptionalAction, help="If provided, will name extracted audio files by cue and track numbers. Otherwise, will name by AWB IDs.")
@@ -57,10 +57,7 @@ def main():
 	cue_parser.add_argument("-ow", "--output-awb-path", required=False, help="Optional path to modified streaming AWB file. If omitted, will modify input AWB in place.")
 
 	args = parser.parse_args()
-	if args.action == "print_info":
-		acb = ACB(args.input_acb_path, awbPath=args.input_awb_path)
-		acb.PrettyPrint()
-	elif args.action == "to_xml":
+	if args.action == "to_xml":
 		utf = UTF()
 		utf.read(args.input_utf)
 		root = utf.to_xml()
@@ -70,12 +67,22 @@ def main():
 				print(ET.tostring(root).decode("utf-8"), file=f)
 		else:
 			print(ET.tostring(root).decode("utf-8"))
-	elif args.action == "extract_audio":
-		acb = ACB(args.input_acb_path, awbPath=args.input_awb_path)
-		if args.output_directory is None:
-			args.output_directory = str(Path(args.input_acb_path).with_suffix(""))
-		os.makedirs(args.output_directory, exist_ok=True)
-		acb.Extract(args.output_directory, keycode=args.key_code, printing=args.print_info, nameByCue=args.name_by_cue)
+	elif args.action == "print_info" or args.action == "extract_audio":
+		if not args.input_awb_path:
+			basename = os.path.splitext(args.input_acb_path)[0]
+			for ext in [".AWB", ".awb"]:
+				if os.path.isfile(basename + ext):
+					args.input_awb_path = basename + ext
+					break
+		if args.action == "print_info":
+			acb = ACB(args.input_acb_path, awbPath=args.input_awb_path)
+			acb.PrettyPrint()
+		elif args.action == "extract_audio":
+			acb = ACB(args.input_acb_path, awbPath=args.input_awb_path)
+			if args.output_directory is None:
+				args.output_directory = str(Path(args.input_acb_path).with_suffix(""))
+			os.makedirs(args.output_directory, exist_ok=True)
+			acb.Extract(args.output_directory, keycode=args.key_code, printing=args.print_info, nameByCue=args.name_by_cue)
 	elif args.action == "replace_waveform" or args.action == "add_simple_cue":
 		if args.action == "replace_waveform":
 			assert len(args.awb_id) == len(args.new_audio_path)
