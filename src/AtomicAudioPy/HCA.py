@@ -325,8 +325,8 @@ class LoopChunk(Serializable):
 	def __init__(self):
 
 		self.Magic				= None
-		self.LoopStartFrame		= None
-		self.LoopEndFrame		= None
+		self.LoopStartSample	= None
+		self.LoopEndSample		= None
 		self.PreLoopSamples		= None
 		self.PostLoopSamples	= None
 
@@ -335,8 +335,8 @@ class LoopChunk(Serializable):
 		self.Magic = rw.rw_bytestring(self.Magic, 4)
 		assert DecryptByteString(self.Magic) == b"loop"
 
-		self.LoopStartFrame		= rw.rw_uint32(self.LoopStartFrame)
-		self.LoopEndFrame		= rw.rw_uint32(self.LoopEndFrame)
+		self.LoopStartSample	= rw.rw_uint32(self.LoopStartSample)
+		self.LoopEndSample		= rw.rw_uint32(self.LoopEndSample)
 		self.PreLoopSamples		= rw.rw_uint16(self.PreLoopSamples)
 		self.PostLoopSamples	= rw.rw_uint16(self.PostLoopSamples)
 
