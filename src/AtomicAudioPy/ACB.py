@@ -149,6 +149,87 @@ class ACB:
 			self.RecursivelyGetReferences(refType, refIndex, depth=1, ind=0, printing=True, extracting=False)
 			print()
 
+	def PrintCmds(self, cmdBytes, depth=0):
+		while cmdBytes and cmdBytes != [0]:
+			cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
+			paramCount = cmdBytes.pop(0)
+			params = [cmdBytes.pop(0) for j in range(paramCount)]
+			self.PrintCmd(cmdType, paramCount, params, depth=depth)
+
+	def PrintCmd(self, cmdType, paramCount, params, depth=0):
+		if CommandType(cmdType) == CommandType.VolumeBus:
+			stringInd, volume = ParamsToArgs(params, [2, 2])
+			busName = self.Tables["StringValue"].GetRowField(stringInd, "StringValue").Value.Value
+			print("{}{}({}) = {}/10000".format(" "*(depth+2), CommandType(cmdType).name, busName, volume))
+		elif CommandType(cmdType) == CommandType.CuePriorityMode:
+			print("{}{}({})".format(" "*(depth+2), CommandType(cmdType).name, params[0]))
+		elif CommandType(cmdType) == CommandType.CuePriority:
+			val = struct.unpack("!b", bytes(params))[0]
+			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, val))
+		elif CommandType(cmdType) == CommandType.CuePriorityModeAndValue or CommandType(cmdType) == CommandType.PriorityModeAndValue:
+			val = struct.unpack("!b", bytes(params[1:]))[0]
+			print("{}{}({}) = {}".format(" "*(depth+2), CommandType(cmdType).name, params[0], val))
+		elif CommandType(cmdType) == CommandType.Pan3dAngle:
+			angle = struct.unpack("!h", bytes(params))[0]
+			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, angle))
+		elif CommandType(cmdType) == CommandType.MaximumPitch:
+			pitch = struct.unpack("!h", bytes(params))[0]
+			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, pitch))
+		elif CommandType(cmdType) == CommandType.VolumeEnvelopeAttackRateAndCurve or CommandType(cmdType) == CommandType.VolumeEnvelopeReleaseRateAndCurve or CommandType(cmdType) == CommandType.VolumeEnvelopeDelayAndHold or CommandType(cmdType) == CommandType.VolumeEnvelopeDecayRateAndCurve:
+			unk1, unk2 = ParamsToArgs(params, [2, 2])
+			print("{}{} = {}, {}".format(" "*(depth+2), CommandType(cmdType).name, unk1, unk2))
+		elif CommandType(cmdType) == CommandType.VolumeEnvelopeSustainLevel:
+			level = ParamsToArgs(params, [2])[0]
+			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, level))
+		elif CommandType(cmdType) == CommandType.Category:
+			assert paramCount == 4 or paramCount == 8
+			if paramCount == 4:
+				acfCategoryId = ParamsToArgs(params, [4])[0]
+			elif paramCount == 8:
+				unkIntParam, acfCategoryId = ParamsToArgs(params, [4, 4])
+			assert acfCategoryId in self.AcfCategories
+			acfCategory = self.AcfCategories[acfCategoryId]
+			print("{}{} = \"{}\"".format(" "*(depth+2), CommandType(cmdType).name, acfCategory))
+			assert not params
+		elif CommandType(cmdType) == CommandType.GlobalAisacReference:
+			ind = ParamsToArgs(params, [2])[0]
+			print("{}{}({})".format(" "*(depth+2), CommandType(cmdType).name, ind))
+		elif CommandType(cmdType) == CommandType.Pan3dInteriorDistanceGain:
+			unk = ParamsToArgs(params, [2])[0]
+			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, unk))
+		elif CommandType(cmdType) == CommandType.Pos3dDistanceMin or CommandType(cmdType) == CommandType.Pos3dDistanceMax:
+			assert paramCount == 4
+			flt = struct.unpack("!f", bytes(params))[0]
+			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, flt))
+		elif CommandType(cmdType) == CommandType.CueLimitsAndMode:
+			limit1, limit2, mode = ParamsToArgs(params, [2, 2, 1])
+			print("{}{} = {}, {}, {}".format(" "*(depth+2), CommandType(cmdType).name, limit1, limit2, mode))
+		elif CommandType(cmdType) == CommandType.VolumeGain_Res100:
+			gain = ParamsToArgs(params, [2])[0]
+			print("{}{} = {}%".format(" "*(depth+2), CommandType(cmdType).name, gain))
+		elif CommandType(cmdType) == CommandType.VolumeBus:
+			stringInd, volume = ParamsToArgs(params, [2, 2])
+			busName = self.Tables["StringValue"].GetRowField(stringInd, "StringValue").Value.Value
+			print("{}{}({}) = {}/10000".format(" "*(depth+2), CommandType(cmdType).name, busName, volume))
+		elif CommandType(cmdType) == CommandType.Selector:
+			selectId = ParamsToArgs(params, [2])[0]
+			print("{}{}({})".format(" "*(depth+2), CommandType(cmdType).name, selectId))
+		elif CommandType(cmdType) == CommandType.VolumeBus:
+			stringInd, volume = ParamsToArgs(params, [2, 2])
+			busName = self.Tables["StringValue"].GetRowField(stringInd, "StringValue").Value.Value
+			print("{}{}({}) = {}/10000".format(" "*(depth+2), CommandType(cmdType).name, busName, volume))
+		elif CommandType(cmdType) == CommandType.Biquad:
+			unk1, unk2, unk3, unk4 = ParamsToArgs(params, [1, 2, 2, 2])
+			print("{}{} ({}, {}, {}, {})".format(" "*(depth+2), CommandType(cmdType).name, unk1, unk2, unk3, unk4))
+		elif CommandType(cmdType) == CommandType.Bandpass:
+			unk1, unk2 = ParamsToArgs(params, [2, 2])
+			print("{}{} ({}, {})".format(" "*(depth+2), CommandType(cmdType).name, unk1, unk2))
+		elif CommandType(cmdType) == CommandType.TrackSelectorLabel:
+			selectId, selectVal = ParamsToArgs(params, [2, 2])
+			print("{}{}({}) = {}".format(" "*(depth+2), CommandType(cmdType).name, selectId, selectVal))
+		else:
+			print("{}{} ({})".format(" "*(depth+2), CommandType(cmdType).name, ", ".join(str(p) for p in params)))
+
 	def RecursivelyGetReferences(self, refType, refIndex, depth=0, ind=0, printing=False, keycode=None, outputFormat=None, path="", extracting=False):
 		if ReferenceType(refType) == ReferenceType.Waveform:
 			streaming = self.Tables["Waveform"].GetRowField(refIndex, "Streaming").Value
@@ -232,16 +313,7 @@ class ACB:
 				if cmdIndex != 0xFFFF:
 					cmdBytes = list(self.Tables["SynthCommand"].GetRowField(cmdIndex, "Command").Value.Value)
 					print("{}Synth Commands:".format(" "*(depth+1)))
-					while cmdBytes and cmdBytes != [0]:
-						cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
-						paramCount = cmdBytes.pop(0)
-						params = [cmdBytes.pop(0) for j in range(paramCount)]
-						if CommandType(cmdType) == CommandType.VolumeBus:
-							stringInd, volume = ParamsToArgs(params, [2, 2])
-							busName = self.Tables["StringValue"].GetRowField(stringInd, "StringValue").Value.Value
-							print("{}{}({}) = {}/10000".format(" "*(depth+2), CommandType(cmdType).name, busName, volume))
-						else:
-							print("{}{} ({})".format(" "*(depth+2), CommandType(cmdType).name, ", ".join(str(p) for p in params)))
+					self.PrintCmds(cmdBytes, depth=depth)
 			refItems2 = self.Tables["Synth"].GetRowField(refIndex, "ReferenceItems").Value.Value
 			refType2 = (refItems2[0] << 8) + refItems2[1]
 			refIndex2 = (refItems2[2] << 8) + refItems2[3]
@@ -263,45 +335,7 @@ class ACB:
 				if cmdIndex != 0xFFFF:
 					cmdBytes = list(self.Tables["SeqCommand"].GetRowField(cmdIndex, "Command").Value.Value)
 					print("{}Sequence Commands:".format(" "*(depth+1)))
-					while cmdBytes and cmdBytes != [0]:
-						cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
-						paramCount = cmdBytes.pop(0)
-						params = [cmdBytes.pop(0) for j in range(paramCount)]
-						if CommandType(cmdType) == CommandType.Category:
-							assert paramCount == 4 or paramCount == 8
-							if paramCount == 4:
-								acfCategoryId = ParamsToArgs(params, [4])[0]
-							elif paramCount == 8:
-								unkIntParam, acfCategoryId = ParamsToArgs(params, [4, 4])
-							assert acfCategoryId in self.AcfCategories
-							acfCategory = self.AcfCategories[acfCategoryId]
-							print("{}{} = \"{}\"".format(" "*(depth+2), CommandType(cmdType).name, acfCategory))
-							assert not params
-						elif CommandType(cmdType) == CommandType.GlobalAisacReference:
-							ind = ParamsToArgs(params, [2])[0]
-							print("{}{}({})".format(" "*(depth+2), CommandType(cmdType).name, ind))
-						elif CommandType(cmdType) == CommandType.Pan3dInteriorDistanceGain:
-							unk = ParamsToArgs(params, [2])[0]
-							print("{}{}({})".format(" "*(depth+2), CommandType(cmdType).name, unk))
-						elif CommandType(cmdType) == CommandType.Pos3dDistanceMin or CommandType(cmdType) == CommandType.Pos3dDistanceMax:
-							assert paramCount == 4
-							flt = struct.unpack("!f", bytes(params))[0]
-							print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, flt))
-						elif CommandType(cmdType) == CommandType.CueLimitsAndMode:
-							limit1, limit2, mode = ParamsToArgs(params, [2, 2, 1])
-							print("{}{} ({}, {}, {})".format(" "*(depth+2), CommandType(cmdType).name, limit1, limit2, mode))
-						elif CommandType(cmdType) == CommandType.VolumeGain_Res100:
-							unk = ParamsToArgs(params, [2])[0]
-							print("{}{}({})".format(" "*(depth+2), CommandType(cmdType).name, unk))
-						elif CommandType(cmdType) == CommandType.VolumeBus:
-							stringInd, volume = ParamsToArgs(params, [2, 2])
-							busName = self.Tables["StringValue"].GetRowField(stringInd, "StringValue").Value.Value
-							print("{}{}({}) = {}/10000".format(" "*(depth+2), CommandType(cmdType).name, busName, volume))
-						elif CommandType(cmdType) == CommandType.Selector:
-							selectId = ParamsToArgs(params, [2])[0]
-							print("{}{}({})".format(" "*(depth+2), CommandType(cmdType).name, selectId))
-						else:
-							print("{}{} ({})".format(" "*(depth+2), CommandType(cmdType).name, ", ".join(str(p) for p in params)))
+					self.PrintCmds(cmdBytes, depth=depth)
 			#####
 			numTracks = self.Tables["Sequence"].GetRowField(refIndex, "NumTracks").Value
 			trackIndex = self.Tables["Sequence"].GetRowField(refIndex, "TrackIndex").Value.Value
@@ -323,29 +357,10 @@ class ACB:
 				if cmdIndex != 0xFFFF:
 					cmdBytes = list(self.Tables["TrackCommand"].GetRowField(cmdIndex, "Command").Value.Value)
 					print("{}Track Commands:".format(" "*(depth+1)))
-					while cmdBytes and cmdBytes != [0]:
-						cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
-						paramCount = cmdBytes.pop(0)
-						params = [cmdBytes.pop(0) for j in range(paramCount)]
-						if CommandType(cmdType) == CommandType.VolumeBus:
-							stringInd, volume = ParamsToArgs(params, [2, 2])
-							busName = self.Tables["StringValue"].GetRowField(stringInd, "StringValue").Value.Value
-							print("{}{}({}) = {}/10000".format(" "*(depth+2), CommandType(cmdType).name, busName, volume))
-						# looks like some kind of volume thing...
-						elif CommandType(cmdType) == CommandType.Biquad:
-							unk1, unk2, unk3, unk4 = ParamsToArgs(params, [1, 2, 2, 2])
-							print("{}{} ({}, {}, {}, {})".format(" "*(depth+2), CommandType(cmdType).name, unk1, unk2, unk3, unk4))
-						# also looks like some kind of volume thing...
-						elif CommandType(cmdType) == CommandType.Bandpass:
-							unk1, unk2 = ParamsToArgs(params, [2, 2])
-							print("{}{} ({}, {})".format(" "*(depth+2), CommandType(cmdType).name, unk1, unk2))
-						elif CommandType(cmdType) == CommandType.TrackSelectorLabel:
-							selectId, selectVal = ParamsToArgs(params, [2, 2])
-							print("{}{}({}) == {}".format(" "*(depth+2), CommandType(cmdType).name, selectId, selectVal))
-						else:
-							print("{}{} ({})".format(" "*(depth+2), CommandType(cmdType).name, ", ".join(str(p) for p in params)))
+					self.PrintCmds(cmdBytes, depth=depth)
 			ind = 0
 			cmdBytes = list(self.Tables["TrackEvent"].GetRowField(eventIndex, "Command").Value.Value)
+			# ...ok, track events are more complicated than the rest so I'm leaving them independent for now....
 			while cmdBytes and cmdBytes != [0]:
 				cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
 				paramCount = cmdBytes.pop(0)
