@@ -46,9 +46,10 @@ def main():
 	cue_parser = subparsers.add_parser("add_simple_cue", help="Use the provided audio files to create new AWB entries and a simple cue that points to them.")
 	cue_parser.add_argument("--cue-name", required=False, help="Name of cue to be added. If omitted, will default to \"Cue{cue_id}\".")
 	cue_parser.add_argument("--cue-id", type=int, required=False, help="Cue ID of new cue. If omitted, will pick next available ID.")
-	cue_parser.add_argument("--sequence-type", required=False, choices=[x.name for x in SequenceType], default="Polyphonic", help="Name of the sequence type for the cue.")
-	cue_parser.add_argument("--new-audio-type", required=False, choices=[x.name for x in ExtEncode], default="ADX", help="Name of the audio format of the new file.")
-	cue_parser.add_argument("--new-audio-path", required=True, action="append", help="Path to audio file that will replace existing one.")
+	cue_parser.add_argument("--sequence-type", required=False, choices=[x.name for x in SequenceType], help="Name of the sequence type for the cue.")
+	cue_parser.add_argument("--new-audio-type", required=False, choices=[x.name for x in ExtEncode], default="ADX", help="Name of the (shared) audio format of the new file(s).")
+	cue_parser.add_argument("--new-audio-path", required=True, action="append", help="Path(s) to audio file(s) to be added to the new cue's sequence.")
+	cue_parser.add_argument("--base-cue-id", type=int, required=False, help="Cue ID of existing cue to base commands off of. If omitted, will leave commands blank.")
 	#cue_parser.add_argument("--convert-input", action=argparse.BooleanOptionalAction, help="If provided, will convert input audio file to ADX.")
 	cue_parser.add_argument("-k", "--key-code", type=int, required=False, help="If provided, will encrypt input ADX file.") # (whether ADX at source or converted via --convert-input).")
 	cue_parser.add_argument("-ic", "--input-acb-path", required=True, help="Path to ACB file to modify.")
@@ -121,7 +122,10 @@ def main():
 			for awb_id, inputBytes in zip(args.awb_id, inputBytesList):
 				acb.ReplaceWaveform(awb_id, streaming, inputBytes, replacementType=ExtEncode[args.new_audio_type].value)
 		elif args.action == "add_simple_cue":
-			acb.AddWaveformAndCue(streaming, inputBytesList, args.new_audio_type, args.cue_name, args.cue_id, seqType=SequenceType[args.sequence_type].value)
+			seqType = None
+			if args.sequence_type is not None:
+				seqType = SequenceType[args.sequence_type].value
+			acb.AddWaveformAndCue(streaming, inputBytesList, args.new_audio_type, args.cue_name, args.cue_id, seqType=seqType, baseCueId=args.base_cue_id)
 
 		acb.AcbStruct.write_right(args.output_acb_path)
 		if args.output_awb_path is not None:

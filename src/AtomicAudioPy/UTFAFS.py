@@ -1,3 +1,4 @@
+import copy
 import os
 
 import xml.etree.ElementTree as ET
@@ -311,6 +312,10 @@ class UTF(Serializable):
 				typeFlag=self.Fields[i].TypeFlag,
 				value=rowFields[self.Fields[i].Name.Value],
 			)
+
+	def CopyRow(self, rowInd):
+		self.Rows.append(copy.deepcopy(self.Rows[rowInd]))
+		self.RowCount += 1
 
 
 class Field(Serializable):

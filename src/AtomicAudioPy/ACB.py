@@ -201,9 +201,12 @@ class ACB:
 			assert paramCount == 4
 			flt = struct.unpack("!f", bytes(params))[0]
 			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, flt))
+		elif CommandType(cmdType) == CommandType.CueLimits:
+			limit1, limit2 = ParamsToArgs(params, [2, 2])
+			print("{}{} = {}, {}".format(" "*(depth+2), CommandType(cmdType).name, limit1, limit2))
 		elif CommandType(cmdType) == CommandType.CueLimitsAndMode:
 			limit1, limit2, mode = ParamsToArgs(params, [2, 2, 1])
-			print("{}{} = {}, {}, {}".format(" "*(depth+2), CommandType(cmdType).name, limit1, limit2, mode))
+			print("{}{}({}) = {}, {}".format(" "*(depth+2), CommandType(cmdType).name, mode, limit1, limit2))
 		elif CommandType(cmdType) == CommandType.VolumeGain_Res100:
 			gain = ParamsToArgs(params, [2])[0]
 			print("{}{} = {}%".format(" "*(depth+2), CommandType(cmdType).name, gain))
@@ -533,7 +536,7 @@ class ACB:
 		})
 		return extRow
 
-	def AddSynthRow(self, waveRow):
+	def AddSynthRow(self, waveRow, baseSynthInd=None):
 		refBytes = list()
 		refType = ReferenceType.Waveform.value
 		refBytes.append((refType >> 8) & 0xFF)
@@ -542,24 +545,36 @@ class ACB:
 		refBytes.append(waveRow & 0xFF)
 
 		synthRow = self.Tables["Synth"].RowCount
-		self.Tables["Synth"].AddRow({
-			"Type": 0,
-			"VoiceLimitGroupName": RefString(encodingType=self.Tables["Synth"].EncodingType),
-			"CommandIndex": 0,
-			"ReferenceItems": RefData(length=4, magic=b"\x00"*4, value=array.array("B", refBytes)),
-			"LocalAisacs": RefData(),
-			"GlobalAisacStartIndex": 0xFFFF,
-			"GlobalAisacNumRefs": 0,
-			"ControlWorkArea1": 0,
-			"ControlWorkArea2": 0,
-			"TrackValues": RefData(),
-			"ParameterPallet": 0xFFFF,
-			"ActionTrackStartIndex": 0xFFFF,
-			"NumActionTracks": 0,
-		})
+		if baseSynthInd is None:
+			self.Tables["Synth"].AddRow({
+				"Type": 0,
+				"VoiceLimitGroupName": RefString(encodingType=self.Tables["Synth"].EncodingType),
+				"CommandIndex": 0xFFFF,
+				"ReferenceItems": RefData(length=4, magic=b"\x00"*4, value=array.array("B", refBytes)),
+				"LocalAisacs": RefData(),
+				"GlobalAisacStartIndex": 0xFFFF,
+				"GlobalAisacNumRefs": 0,
+				"ControlWorkArea1": 0,
+				"ControlWorkArea2": 0,
+				"TrackValues": RefData(),
+				"ParameterPallet": 0xFFFF,
+				"ActionTrackStartIndex": 0xFFFF,
+				"NumActionTracks": 0,
+			})
+		else:
+			self.Tables["Synth"].CopyRow(baseSynthInd)
+			self.Tables["Synth"].SetRowField(synthRow, "ReferenceItems", RefData(length=4, magic=b"\x00"*4, value=array.array("B", refBytes)))
+			globalAisacStart = self.Tables["Synth"].GetRowField(synthRow, "GlobalAisacStartIndex").Value
+			globalAisacCount = self.Tables["Synth"].GetRowField(synthRow, "GlobalAisacNumRefs").Value
+			if globalAisacStart != 0xFFFF and globalAisacCount > 0:
+				newStart = self.Tables["GlobalAisacReference"].RowCount
+				for globalAisacInd in range(globalAisacCount):
+					globalAisacName = self.Tables["GlobalAisacReference"].GetRowField(globalAisacStart+globalAisacInd, "Name").Value.Value
+					self.Tables["GlobalAisacReference"].CopyRow(globalAisacStart+globalAisacInd)
+				self.Tables["Synth"].SetRowField(synthRow, "GlobalAisacStartIndex", newStart)
 		return synthRow
 
-	def AddSynthCommandRow(self, synthRow):
+	def AddTrackEventRow(self, synthRow):
 		cmdBytes = list()
 		cmdType = CommandType.NoteOn.value
 		cmdBytes.append((cmdType >> 8) & 0xFF)
@@ -579,33 +594,45 @@ class ACB:
 		})
 		return cmdRow
 
-	def AddTrackRow(self, cmdRow):
+	def AddTrackRow(self, eventRow, baseTrackInd=None):
 		trackRow = self.Tables["Track"].RowCount
-		self.Tables["Track"].AddRow({
-			"EventIndex": cmdRow,
-			"CommandIndex": 0xFFFF,
-			"LocalAisacs": RefData(),
-			"GlobalAisacStartIndex": 0xFFFF,
-			"GlobalAisacNumRefs": 0,
-			"ParameterPallet": 0xFFFF,
-			"TargetType": 0,
-			"TargetName": RefString(encodingType=self.Tables["Track"].EncodingType),
-			"TargetId": 0xFFFFFFFF,
-			"TargetAcbName": RefString(encodingType=self.Tables["Track"].EncodingType),
-			"Scope": 0,
-			"TargetTrackNo": 0xFFFF,
-		})
+		if baseTrackInd is None:
+			self.Tables["Track"].AddRow({
+				"EventIndex": eventRow,
+				"CommandIndex": 0xFFFF,
+				"LocalAisacs": RefData(),
+				"GlobalAisacStartIndex": 0xFFFF,
+				"GlobalAisacNumRefs": 0,
+				"ParameterPallet": 0xFFFF,
+				"TargetType": 0,
+				"TargetName": RefString(encodingType=self.Tables["Track"].EncodingType),
+				"TargetId": 0xFFFFFFFF,
+				"TargetAcbName": RefString(encodingType=self.Tables["Track"].EncodingType),
+				"Scope": 0,
+				"TargetTrackNo": 0xFFFF,
+			})
+		else:
+			self.Tables["Track"].CopyRow(baseTrackInd)
+			self.Tables["Track"].SetRowField(trackRow, "EventIndex", eventRow)
+			globalAisacStart = self.Tables["Track"].GetRowField(trackRow, "GlobalAisacStartIndex").Value
+			globalAisacCount = self.Tables["Track"].GetRowField(trackRow, "GlobalAisacNumRefs").Value
+			if globalAisacStart != 0xFFFF and globalAisacCount > 0:
+				newStart = self.Tables["GlobalAisacReference"].RowCount
+				for globalAisacInd in range(globalAisacCount):
+					globalAisacName = self.Tables["GlobalAisacReference"].GetRowField(globalAisacStart+globalAisacInd, "Name").Value.Value
+					self.Tables["GlobalAisacReference"].CopyRow(globalAisacStart+globalAisacInd)
+				self.Tables["Track"].SetRowField(trackRow, "GlobalAisacStartIndex", newStart)
 		return trackRow
 
 	# TODO: this is as dumb as can be for now
-	def AddSeqCommandRow(self, cmdBytes):
-		cmdRow = self.Tables["SeqCommand"].RowCount
-		self.Tables["SeqCommand"].AddRow({
+	def AddCommandRow(self, name, cmdBytes):
+		cmdRow = self.Tables[f"{name}Command"].RowCount
+		self.Tables[f"{name}Command"].AddRow({
 			"Command": RefData(length=len(cmdBytes), magic=b"\x00"*4, value=array.array("B", cmdBytes))
 		})
 		return cmdRow
 
-	def AddSequenceRow(self, trackRows, cmdRow=0xFFFF, seqType=0):
+	def AddSequenceRow(self, trackRows, cmdRow=0xFFFF, seqType=None, baseSeqInd=None):
 		trackBytes = list()
 		for trackRow in trackRows:
 			trackBytes.append((trackRow >> 8) & 0xFF)
@@ -614,22 +641,39 @@ class ACB:
 		trackIndex = RefData(length=4, magic=b"\x00"*4, value=array.array("B", trackBytes))
 
 		seqRow = self.Tables["Sequence"].RowCount
-		self.Tables["Sequence"].AddRow({
-			"PlaybackRatio": 100,
-			"NumTracks": len(trackRows),
-			"TrackIndex": trackIndex,
-			"CommandIndex": cmdRow,
-			"LocalAisacs": RefData(),
-			"GlobalAisacStartIndex": 0xFFFF,
-			"GlobalAisacNumRefs": 0,
-			"ParameterPallet": 0xFFFF,
-			"ActionTrackStartIndex": 0xFFFF,
-			"NumActionTracks": 0,
-			"TrackValues": RefData(),
-			"Type": seqType,
-			"ControlWorkArea1": 1,
-			"ControlWorkArea2": 1,
-		})
+		if baseSeqInd is None:
+			self.Tables["Sequence"].AddRow({
+				"PlaybackRatio": 100,
+				"NumTracks": len(trackRows),
+				"TrackIndex": trackIndex,
+				"CommandIndex": cmdRow,
+				"LocalAisacs": RefData(),
+				"GlobalAisacStartIndex": 0xFFFF,
+				"GlobalAisacNumRefs": 0,
+				"ParameterPallet": 0xFFFF,
+				"ActionTrackStartIndex": 0xFFFF,
+				"NumActionTracks": 0,
+				"TrackValues": RefData(),
+				"Type": 0 if seqType is None else seqType,
+				"ControlWorkArea1": 1,
+				"ControlWorkArea2": 1,
+			})
+		else:
+			self.Tables["Sequence"].CopyRow(baseSeqInd)
+			self.Tables["Sequence"].SetRowField(seqRow, "NumTracks", len(trackRows))
+			self.Tables["Sequence"].SetRowField(seqRow, "TrackIndex", trackIndex)
+			self.Tables["Sequence"].SetRowField(seqRow, "CommandIndex", cmdRow)
+			if seqType is not None:
+				self.Tables["Sequence"].SetRowField(seqRow, "Type", seqType)
+			globalAisacStart = self.Tables["Sequence"].GetRowField(seqRow, "GlobalAisacStartIndex").Value
+			globalAisacCount = self.Tables["Sequence"].GetRowField(seqRow, "GlobalAisacNumRefs").Value
+			if globalAisacStart != 0xFFFF and globalAisacCount > 0:
+				newStart = self.Tables["GlobalAisacReference"].RowCount
+				for globalAisacInd in range(globalAisacCount):
+					globalAisacName = self.Tables["GlobalAisacReference"].GetRowField(globalAisacStart+globalAisacInd, "Name").Value.Value
+					self.Tables["GlobalAisacReference"].CopyRow(globalAisacStart+globalAisacInd)
+				self.Tables["Sequence"].SetRowField(seqRow, "GlobalAisacStartIndex", newStart)
+
 		return seqRow
 
 	def AddCueRow(self, length, seqRow, cueId=None):
@@ -663,27 +707,91 @@ class ACB:
 		})
 		return cueNameRow
 
-	def AddWaveformAndCue(self, streaming, newBytesList, newType, cueName=None, cueId=None, seqCmdBytes=None, seqType=0):
+	# each sound in newBytesList is put as the single synth in its own track
+	# ...so this can do multi-track stuff, but not multi-synth stuff, if that makes sense
+	# (obviously it'd be nice to do that but it's more complicated)
+	def AddWaveformAndCue(self, streaming, newBytesList, newType, cueName=None, cueId=None, seqCmdBytes=None, seqType=None, baseCueId=None):
+
+		# copy the seq params + as many tracks (+track events) of the base cue as there are tracks for the new one
+		# all synths in the copied track are replaced with ones pointing to the current new sound
+		# any other command refs are the same, rather than duplicated
+		baseSeqInd = None
+		baseTrack = list()
+		baseTrackSynth = list()
+		if baseCueId:
+			cueRow = self.CueId2CueRow[baseCueId]
+			refType = self.Tables["Cue"].GetRowField(cueRow, "ReferenceType").Value
+			refIndex = self.Tables["Cue"].GetRowField(cueRow, "ReferenceIndex").Value
+			if ReferenceType(refType) == ReferenceType.Sequence or ReferenceType(refType) == ReferenceType.LinkedSequence:
+				baseSeqInd = refIndex
+
+			# for each track in the base seq, get first synth
+			# track events are simplified rather than copied
+			# if we have more tracks than the original sequence, we reference the 0th
+			numTracks = self.Tables["Sequence"].GetRowField(baseSeqInd, "NumTracks").Value
+			trackIndex = self.Tables["Sequence"].GetRowField(baseSeqInd, "TrackIndex").Value.Value
+			assert len(trackIndex) == 2*numTracks
+			for i in range(numTracks):
+				baseTrackSynth.append(None)
+				trackId = (trackIndex[2*i] << 8) + trackIndex[(2*i)+1]
+				baseTrack.append(trackId)
+				eventIndex = self.Tables["Track"].GetRowField(trackId, "EventIndex").Value
+				cmdBytes = list(self.Tables["TrackEvent"].GetRowField(eventIndex, "Command").Value.Value)
+				while cmdBytes and cmdBytes != [0]:
+					cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
+					paramCount = cmdBytes.pop(0)
+					params = [cmdBytes.pop(0) for j in range(paramCount)]
+					if CommandType(cmdType) == CommandType.NoteOn:
+						refType2, refIndex2 = ParamsToArgs(params, [2, 2])
+						if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
+							baseTrackSynth[-1] = refIndex2
+							break
+					elif CommandType(cmdType) == CommandType.NoteOnWithNo:
+						refType2, refIndex2, unk = ParamsToArgs(params, [2, 2, 2])
+						if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
+							baseTrackSynth[-1] = refIndex2
+							break
+
 		trackRows = list()
-		for newBytes in newBytesList:
+		for i in range(len(newBytesList)):
 			# new AWB entry
-			awbId = self.AddAwbEntry(streaming, newBytes)
+			awbId = self.AddAwbEntry(streaming, newBytesList[i])
 			# new Waveform row
 			length, waveRow = self.AddWaveformRow(streaming, ExtEncode[newType].value, awbId)
+			# maybe new SynthCommand row
+			baseSynthInd = None
+			if i < len(baseTrackSynth): baseSynthInd = baseTrackSynth[i]
+			elif baseTrackSynth: baseSynthInd = baseTrackSynth[0]
 			# new Synth row
-			synthRow = self.AddSynthRow(waveRow)
-			# new Command row
-			trackEventRow = self.AddSynthCommandRow(synthRow)
+			synthRow = self.AddSynthRow(waveRow, baseSynthInd=(baseTrackSynth[i] if i < len(baseTrackSynth) else baseTrackSynth[0] if baseTrackSynth else None))
+			# new TrackEvent row
+			trackEventRow = self.AddTrackEventRow(synthRow)
 			#trackEventRow = self.AddLinkCommandRow(cueId)
 			# new Track row
-			trackRow = self.AddTrackRow(trackEventRow)
+			trackRow = self.AddTrackRow(trackEventRow, baseTrackInd=(baseTrack[i] if i < len(baseTrack) else baseTrack[0] if baseTrack else None))
 			trackRows.append(trackRow)
-		# new Sequence Command row
-		if seqCmdBytes is None:
-			seqCmdBytes = list(self.Tables["SeqCommand"].GetRowField(0, "Command").Value.Value)
-		seqCmdRow = self.AddSeqCommandRow(seqCmdBytes)
+
+		# new Sequence Command row (because we need to change the CueLimits lol)
+		# god, i need a new way to deal with commands, this is untenable
+		if seqCmdBytes is None and baseSeqInd is not None:
+			baseSeqCmdIndex = self.Tables["Sequence"].GetRowField(baseSeqInd, "CommandIndex").Value
+			if baseSeqCmdIndex != 0xFFFF:
+				seqCmdBytes = list(self.Tables["SeqCommand"].GetRowField(baseSeqCmdIndex, "Command").Value.Value)
+				i = 0
+				while i < len(seqCmdBytes)-3:
+					cmdType = (seqCmdBytes[i] << 8) + seqCmdBytes[i+1]
+					paramCount = seqCmdBytes[i+2]
+					params = [seqCmdBytes[i+3+j] for j in range(paramCount)]
+					if CommandType(cmdType) == CommandType.CueLimits or CommandType(cmdType) == CommandType.CueLimitsAndMode:
+						seqCmdBytes[i+3+2] = (self.Tables["Cue"].RowCount >> 8) & 0xFF
+						seqCmdBytes[i+3+3] = self.Tables["Cue"].RowCount & 0xFF
+					i += 3 + paramCount
+		seqCmdRow = 0xFFFF
+		if seqCmdBytes is not None:
+			seqCmdRow = self.AddCommandRow("Seq", seqCmdBytes)
+
 		# new Sequence row
-		seqRow = self.AddSequenceRow(trackRows, cmdRow=seqCmdRow, seqType=seqType)
+		seqRow = self.AddSequenceRow(trackRows, cmdRow=seqCmdRow, seqType=seqType, baseSeqInd=baseSeqInd)
 		# new Cue row
 		cueId, cueRow = self.AddCueRow(length, seqRow, cueId=cueId)
 		# new CueName row
