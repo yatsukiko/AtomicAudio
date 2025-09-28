@@ -14,6 +14,7 @@ class HCA(Serializable):
 		self.ChannelCount		= None
 		self.SampleRate			= None
 		self.SampleCount		= None
+		self.InsertedSamples	= None
 		self.Duration			= None
 		self.FrameCount			= None
 		self.FrameSize			= None
@@ -44,16 +45,17 @@ class HCA(Serializable):
 			self.Data = rw.rw_bytestring(self.Data, self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize)
 			assert len(self.Data) == self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize
 
-		self.ChannelCount	= self.Header.FmtChunk.ChannelCount
-		self.SampleRate		= self.Header.FmtChunk.SampleRate
-		self.SampleCount	= self.Header.FmtChunk.SampleCount
-		self.Duration		= int(1000*self.SampleCount/self.SampleRate)
-		self.FrameCount		= self.Header.FmtChunk.FrameCount
-		self.FrameSize		= self.Header.CompChunk.FrameSize
-		self.LoopCount		= None if self.Header.LoopChunk is None else 1
+		self.ChannelCount		= self.Header.FmtChunk.ChannelCount
+		self.SampleRate			= self.Header.FmtChunk.SampleRate
+		self.SampleCount		= self.Header.FmtChunk.SampleCount
+		self.InsertedSamples	= self.Header.FmtChunk.InsertedSamples
+		self.Duration			= int(1000*self.SampleCount/self.SampleRate)
+		self.FrameCount			= self.Header.FmtChunk.FrameCount
+		self.FrameSize			= self.Header.CompChunk.FrameSize
+		self.LoopCount			= None if self.Header.LoopChunk is None else 1
 		if self.LoopCount:
-			self.LoopStartSample	= self.Header.LoopChunk.LoopStartSample
-			self.LoopEndSample		= self.Header.LoopChunk.LoopEndSample
+			self.LoopStartSample	= 1024*self.Header.LoopChunk.LoopStartFrame + self.Header.LoopChunk.PreLoopSamples
+			self.LoopEndSample		= 1024*(self.Header.LoopChunk.LoopEndFrame + 1) - self.Header.LoopChunk.PostLoopSamples
 
 		crc = CRC16()
 		for i in range(self.FrameCount):
@@ -325,8 +327,8 @@ class LoopChunk(Serializable):
 	def __init__(self):
 
 		self.Magic				= None
-		self.LoopStartSample	= None
-		self.LoopEndSample		= None
+		self.LoopStartFrame		= None
+		self.LoopEndFrame		= None
 		self.PreLoopSamples		= None
 		self.PostLoopSamples	= None
 
@@ -335,8 +337,8 @@ class LoopChunk(Serializable):
 		self.Magic = rw.rw_bytestring(self.Magic, 4)
 		assert DecryptByteString(self.Magic) == b"loop"
 
-		self.LoopStartSample	= rw.rw_uint32(self.LoopStartSample)
-		self.LoopEndSample		= rw.rw_uint32(self.LoopEndSample)
+		self.LoopStartFrame		= rw.rw_uint32(self.LoopStartFrame)
+		self.LoopEndFrame		= rw.rw_uint32(self.LoopEndFrame)
 		self.PreLoopSamples		= rw.rw_uint16(self.PreLoopSamples)
 		self.PostLoopSamples	= rw.rw_uint16(self.PostLoopSamples)
 

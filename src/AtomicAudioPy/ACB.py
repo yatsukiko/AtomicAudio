@@ -277,8 +277,8 @@ class ACB:
 					print("{}Channels: {}".format(" "*(depth+2), audio.ChannelCount))
 					print("{}Loops: {}".format(" "*(depth+2), audio.LoopCount))
 					if audio.LoopCount:
-						print("{}Loop Start: {}".format(" "*(depth+3), audio.LoopStartSample))
-						print("{}Loop End: {}".format(" "*(depth+3), audio.LoopEndSample))
+						print("{}Loop Start: {}".format(" "*(depth+3), audio.LoopStartSample - audio.InsertedSamples))
+						print("{}Loop End: {}".format(" "*(depth+3), audio.LoopEndSample - audio.InsertedSamples))
 					print("{}Sampling Rate: {}".format(" "*(depth+2), audio.SampleRate))
 					print("{}Samples: {}".format(" "*(depth+2), audio.SampleCount))
 			if extracting:
@@ -342,8 +342,11 @@ class ACB:
 			#####
 			numTracks = self.Tables["Sequence"].GetRowField(refIndex, "NumTracks").Value
 			trackIndex = self.Tables["Sequence"].GetRowField(refIndex, "TrackIndex").Value.Value
+			trackValues = self.Tables["Sequence"].GetRowField(refIndex, "TrackValues").Value.Value
 			for i in range(numTracks):
 				trackId = (trackIndex[2*i] << 8) + trackIndex[(2*i)+1]
+				if printing and trackValues:
+					print("{}Track Value: {}".format(" "*(depth+1), (trackValues[2*i] << 8) + trackValues[(2*i)+1]))
 				self.RecursivelyGetReferences(ReferenceType.Track.value, trackId, depth=depth+1, ind=i, printing=printing, keycode=keycode, outputFormat=outputFormat, path=f"{path}.{i}", extracting=extracting)
 		elif ReferenceType(refType) == ReferenceType.Track:
 			eventIndex = self.Tables["Track"].GetRowField(refIndex, "EventIndex").Value
@@ -415,7 +418,7 @@ class ACB:
 				extIndex = self.Tables["Waveform"].GetRowField(row, "ExtensionData").Value
 				if audio.LoopCount:
 					self.Tables["Waveform"].SetRowField(row, "LoopFlag", 2)
-					if extIndex == 0xFFFF:
+					if self.Tables["WaveformExtensionData"] is None:
 						self.AcbStruct.SetRowField(0, f"WaveformExtensionDataTable", RefData(magic=b"@UTF", value=UTF(
 							encodingType=self.AcbStruct.EncodingType,
 							tableName=RefString(encodingType=self.AcbStruct.EncodingType, value="WaveformExtensionData"),
@@ -428,15 +431,16 @@ class ACB:
 						self.AcbStruct.GetRowField(0, f"WaveformExtensionDataTable").Value.Length = 1 # dummy
 						self.Tables["WaveformExtensionData"] = self.AcbStruct.GetRowField(0, f"WaveformExtensionDataTable").Value.Value
 						self.AcbStruct.update_offsets()
-						extIndex = self.AddWaveformExtensionRow(audio.LoopStartSample, audio.LoopEndSample)
-						self.Tables["Waveform"].SetRowField(row, "ExtensionData", extIndex)
-					self.Tables["WaveformExtensionData"].SetRowField(extIndex, "LoopStart", audio.LoopStartSample)
-					self.Tables["WaveformExtensionData"].SetRowField(extIndex, "LoopEnd", audio.LoopEndSample)
+					if extIndex == 0xFFFF:
+						extIndex = self.AddWaveformExtensionRow(audio.LoopStartSample - audio.InsertedSamples, audio.LoopEndSample - audio.InsertedSamples)
+					self.Tables["Waveform"].SetRowField(row, "ExtensionData", extIndex)
+					self.Tables["WaveformExtensionData"].SetRowField(extIndex, "LoopStart", audio.LoopStartSample - audio.InsertedSamples)
+					self.Tables["WaveformExtensionData"].SetRowField(extIndex, "LoopEnd", audio.LoopEndSample - audio.InsertedSamples)
 				else:
 					self.Tables["Waveform"].SetRowField(row, "LoopFlag", 1)
 					self.Tables["Waveform"].SetRowField(row, "ExtensionData", 0xFFFF) # I don't feel like deleting the row if it exists, whatever
 				self.Tables["Waveform"].SetRowField(row, "SamplingRate", audio.SampleRate)
-				self.Tables["Waveform"].SetRowField(row, "NumSamples", audio.SampleCount)
+				self.Tables["Waveform"].SetRowField(row, "NumSamples", audio.LoopEndSample - audio.InsertedSamples if audio.LoopCount else audio.SampleCount)
 				awb.EntryData[awb.IdToInd[awbId]] = replacementBytes
 			if streaming:
 				self.StreamAwbStruct.update_offsets()
@@ -509,14 +513,32 @@ class ACB:
 		else:
 			raise ValueError("Filetypes other than ADX and HCA not yet implemented.")
 		audio.frombytes(awb.EntryData[awbId])
+
+		extIndex = 0xFFFF
+		if audio.LoopCount:
+			if self.Tables["WaveformExtensionData"] is None:
+				self.AcbStruct.SetRowField(0, f"WaveformExtensionDataTable", RefData(magic=b"@UTF", value=UTF(
+					encodingType=self.AcbStruct.EncodingType,
+					tableName=RefString(encodingType=self.AcbStruct.EncodingType, value="WaveformExtensionData"),
+					columnCount=2,
+					fields=[
+						Field(typeFlag=4, name=RefString(encodingType=self.AcbStruct.EncodingType, value="LoopStart")),
+						Field(typeFlag=4, name=RefString(encodingType=self.AcbStruct.EncodingType, value="LoopEnd")),
+					],
+				)))
+				self.AcbStruct.GetRowField(0, f"WaveformExtensionDataTable").Value.Length = 1 # dummy
+				self.Tables["WaveformExtensionData"] = self.AcbStruct.GetRowField(0, f"WaveformExtensionDataTable").Value.Value
+				self.AcbStruct.update_offsets()
+			extIndex = self.AddWaveformExtensionRow(audio.LoopStartSample - audio.InsertedSamples, audio.LoopEndSample - audio.InsertedSamples)
+
 		rowFields = {
 			"EncodeType": newType,
 			"Streaming": streaming,
 			"NumChannels": audio.ChannelCount,
-			"LoopFlag": 1, # I think this means no loop; 0 also does, and 2 means loop
+			"LoopFlag": 2 if audio.LoopCount else 1, # I think this means no loop; 0 also does, and 2 means loop
 			"SamplingRate": audio.SampleRate,
-			"NumSamples": audio.SampleCount,
-			"ExtensionData": 0xFFFF, # ...but it seems like ACB loop extras go here... TODO
+			"NumSamples": audio.LoopEndSample - audio.InsertedSamples if audio.LoopCount else audio.SampleCount,
+			"ExtensionData": extIndex,
 			"StreamAwbPortNo": 0, # multiple AWBs??
 			"LipMorthIndex": 0xFFFF, # only in recent versions... older versions will just ignore this
 		}
@@ -638,11 +660,14 @@ class ACB:
 
 	def AddSequenceRow(self, trackRows, cmdRow=0xFFFF, seqType=None, baseSeqInd=None):
 		trackBytes = list()
+		trackValues = list()
 		for trackRow in trackRows:
 			trackBytes.append((trackRow >> 8) & 0xFF)
 			trackBytes.append(trackRow & 0xFF)
-		assert len(trackBytes) == 2*len(trackRows)
+			trackValues += [0, 100]
+		assert len(trackBytes) == len(trackValues) == 2*len(trackRows)
 		trackIndex = RefData(length=4, magic=b"\x00"*4, value=array.array("B", trackBytes))
+		trackValues = RefData(length=4, magic=b"\x00"*4, value=array.array("B", trackValues))
 
 		seqRow = self.Tables["Sequence"].RowCount
 		if baseSeqInd is None:
@@ -657,7 +682,7 @@ class ACB:
 				"ParameterPallet": 0xFFFF,
 				"ActionTrackStartIndex": 0xFFFF,
 				"NumActionTracks": 0,
-				"TrackValues": RefData(),
+				"TrackValues": RefData() if len(trackRows) <= 1 else trackValues,
 				"Type": 0 if seqType is None else seqType,
 				"ControlWorkArea1": 1,
 				"ControlWorkArea2": 1,
@@ -668,6 +693,7 @@ class ACB:
 			self.Tables["Sequence"].CopyRow(baseSeqInd)
 			self.Tables["Sequence"].SetRowField(seqRow, "NumTracks", len(trackRows))
 			self.Tables["Sequence"].SetRowField(seqRow, "TrackIndex", trackIndex)
+			self.Tables["Sequence"].SetRowField(seqRow, "TrackValues", RefData() if len(trackRows) <= 1 else trackValues)
 			self.Tables["Sequence"].SetRowField(seqRow, "CommandIndex", cmdRow)
 			if seqType is not None:
 				self.Tables["Sequence"].SetRowField(seqRow, "Type", seqType)
@@ -764,10 +790,6 @@ class ACB:
 			awbId = self.AddAwbEntry(streaming, newBytesList[i])
 			# new Waveform row
 			length, waveRow = self.AddWaveformRow(streaming, ExtEncode[newType].value, awbId)
-			# maybe new SynthCommand row
-			#baseSynthInd = None
-			#if i < len(baseTrackSynth): baseSynthInd = baseTrackSynth[i]
-			#elif baseTrackSynth: baseSynthInd = baseTrackSynth[0]
 			# new Synth row
 			synthRow = self.AddSynthRow(waveRow, baseSynthInd=(baseTrackSynth[i] if i < len(baseTrackSynth) else baseTrackSynth[0] if baseTrackSynth else None))
 			# new TrackEvent row
@@ -807,7 +829,7 @@ class ACB:
 
 		return cueId, cueNameRow
 
-	def AddTracksToCue(self, streaming, newBytesList, newType, cueId, baseTrackWithinCue=None):
+	def AddTracksToCue(self, streaming, newBytesList, newType, cueId, seqType=None, baseTrackWithinCue=None):
 
 		cueRow = self.CueId2CueRow[cueId]
 		refType = self.Tables["Cue"].GetRowField(cueRow, "ReferenceType").Value
@@ -817,6 +839,7 @@ class ACB:
 		seqRow = refIndex
 		originalNumTracks = self.Tables["Sequence"].GetRowField(seqRow, "NumTracks").Value
 		originalTrackIndex = self.Tables["Sequence"].GetRowField(seqRow, "TrackIndex").Value.Value
+		originalTrackValues = self.Tables["Sequence"].GetRowField(seqRow, "TrackValues").Value.Value
 		assert len(originalTrackIndex) == 2*originalNumTracks
 
 		baseTrack = None
@@ -845,13 +868,12 @@ class ACB:
 						break
 
 		newTrackBytes = list(originalTrackIndex)
-		#trackRows = list()
+		newTrackWeights = list(originalTrackValues)
 		for i in range(len(newBytesList)):
 			# new AWB entry
 			awbId = self.AddAwbEntry(streaming, newBytesList[i])
 			# new Waveform row
 			length, waveRow = self.AddWaveformRow(streaming, ExtEncode[newType].value, awbId)
-			# maybe new SynthCommand row
 			# new Synth row
 			synthRow = self.AddSynthRow(waveRow, baseSynthInd=baseTrackSynth)
 			# new TrackEvent row
@@ -859,13 +881,17 @@ class ACB:
 			#trackEventRow = self.AddLinkCommandRow(cueId)
 			# new Track row
 			trackRow = self.AddTrackRow(trackEventRow, baseTrackInd=baseTrack)
-			#trackRows.append(trackRow)
 			newTrackBytes.append((trackRow >> 8) & 0xFF)
 			newTrackBytes.append(trackRow & 0xFF)
+			newTrackWeights += [0, 100]
 
 		newTrackIndex = RefData(length=4, magic=b"\x00"*4, value=array.array("B", newTrackBytes))
+		newTrackValues = RefData(length=4, magic=b"\x00"*4, value=array.array("B", newTrackWeights))
 		self.Tables["Sequence"].SetRowField(seqRow, "NumTracks", originalNumTracks + len(newBytesList))
 		self.Tables["Sequence"].SetRowField(seqRow, "TrackIndex", newTrackIndex)
+		self.Tables["Sequence"].SetRowField(seqRow, "TrackValues", newTrackValues)
+		if seqType is not None:
+			self.Tables["Sequence"].SetRowField(seqRow, "Type", seqType)
 
 		originalWaveformCount = self.Tables["Cue"].GetRowField(cueRow, "NumRelatedWaveforms").Value
 		self.Tables["Cue"].SetRowField(cueRow, "NumRelatedWaveforms", originalWaveformCount + len(newBytesList))

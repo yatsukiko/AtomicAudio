@@ -47,7 +47,10 @@ class ADX(Serializable):
 		self.LoopEndSample = None
 		self.LoopEndByte = None
 
-		self.AudioMagic = None
+		self.HeaderPaddingSize = 0
+		self.HeaderPadding = None
+		self.AudioMagic = b"(c)CRI"
+
 		self.SamplesPerFrame = (self.FrameSize - 2) * 2
 		self.FrameCount = None
 		self.AudioSize = None
@@ -73,6 +76,14 @@ class ADX(Serializable):
 
 		self.HeaderMagic = rw.rw_uint16(self.HeaderMagic)
 		assert self.HeaderMagic == 0x8000
+
+		# i have NO idea why the amount of padding is whatever it is so fuck that i guess
+		# like, below are the averages, but there are exceptions. shruggg
+		if rw.is_parselike:
+			if self.LoopCount is None:
+				self.HeaderSize = 36  # can be 34
+			else:
+				self.HeaderSize = 2044  # can be literally whatever. go nuts.
 
 		self.HeaderSize = rw.rw_uint16(self.HeaderSize)
 		headerStart = rw.tell()
@@ -127,24 +138,29 @@ class ADX(Serializable):
 				self.LoopEndSample = rw.rw_uint32(self.LoopEndSample)
 				self.LoopEndByte = rw.rw_uint32(self.LoopEndByte)
 
-		# i have NO idea why the amount of padding is whatever it is so fuck that i guess
-		# if it breaks later on i can figure it out then
+		self.HeaderPaddingSize = self.HeaderSize+4-rw.tell()-6
 		if rw.is_parselike:
-			self.AudioMagic = b"(c)CRI"
-		self.AudioMagic = rw.rw_bytestring(self.AudioMagic, self.HeaderSize+4-rw.tell())
-		assert self.AudioMagic == b"\x00"*(len(self.AudioMagic)-6) + b"(c)CRI"
-		if rw.is_parselike:
-			self.HeaderSize = rw.tell() - headerStart
+			self.HeaderPadding = b"\x00"*self.HeaderPaddingSize
+		if self.LoopCount is None:
+			#assert self.HeaderSize == 36
+			assert rw.tell() == 32
+		else:
+			#assert self.HeaderSize == 2044
+			assert rw.tell() == 56
+		self.HeaderPadding = rw.rw_bytestring(self.HeaderPadding, self.HeaderPaddingSize)
+		self.AudioMagic = rw.rw_bytestring(self.AudioMagic, 6)
+		assert self.HeaderPadding == b"\x00"*self.HeaderPaddingSize
+		assert self.AudioMagic == b"(c)CRI"
 		assert rw.tell() - headerStart == self.HeaderSize
 
 		self.SamplesPerFrame = (self.FrameSize - 2) * 2
 		assert self.SamplesPerFrame == 32
 
-		self.FrameCount = math.ceil(self.SampleCount / self.SamplesPerFrame)
-		self.AudioSize = self.FrameSize*self.FrameCount*self.ChannelCount
-
 		self.BaseOffset = self.InsertedSamples // self.SamplesPerFrame * self.FrameSize
 		self.FirstOffset = self.InsertedSamples % self.SamplesPerFrame
+
+		self.FrameCount = math.ceil(self.SampleCount / self.SamplesPerFrame)
+		self.AudioSize = self.FrameSize*self.FrameCount*self.ChannelCount
 
 		self.AudioDataBytes = rw.rw_bytestring(self.AudioDataBytes, self.AudioSize)
 
@@ -152,11 +168,12 @@ class ADX(Serializable):
 		assert self.FooterMagic == 0x8001
 
 		if self.LoopCount is not None and (rw.tell() + self.FrameSize) % 2048:
-			paddingSize = self.FrameSize + 2048 - (rw.tell() + 2 + self.FrameSize) % 2048
+			paddingSize = 2048 - (rw.tell() + 2) % 2048
 		else:
 			paddingSize = self.FrameSize-4
 		if rw.is_parselike:
 			self.FooterPaddingSize = paddingSize
+			self.FooterPadding = b"\x00"*paddingSize
 		self.FooterPaddingSize = rw.rw_uint16(self.FooterPaddingSize)
 		assert self.FooterPaddingSize == paddingSize
 

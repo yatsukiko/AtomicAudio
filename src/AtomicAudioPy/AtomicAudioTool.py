@@ -46,7 +46,7 @@ def main():
 	cue_parser = subparsers.add_parser("add_simple_cue", help="Use the provided audio files to create new AWB entries and a simple cue that points to them.")
 	cue_parser.add_argument("--cue-name", required=False, help="Name of cue to be added. If omitted, will default to \"Cue{cue_id}\".")
 	cue_parser.add_argument("--cue-id", type=int, required=False, help="Cue ID of new cue. If omitted, will pick next available ID.")
-	cue_parser.add_argument("--sequence-type", required=False, choices=[x.name for x in SequenceType], help="Name of the sequence type for the cue.")
+	cue_parser.add_argument("--sequence-type", required=False, choices=[""]+[x.name for x in SequenceType], default="RandomNoRepeat", help="Name of the sequence type for the cue.")
 	cue_parser.add_argument("--new-audio-type", required=False, choices=[x.name for x in ExtEncode], default="ADX", help="Name of the (shared) audio format of the new file(s).")
 	cue_parser.add_argument("--new-audio-path", required=True, action="append", help="Path(s) to audio file(s) to be added to the new cue's sequence.")
 	cue_parser.add_argument("--base-cue-id", type=int, required=False, help="Cue ID of existing cue to base commands off of. If omitted, will leave commands blank.")
@@ -57,9 +57,9 @@ def main():
 	cue_parser.add_argument("-oc", "--output-acb-path", required=False, help="Optional path to modified ACB file. If omitted, will modify input ACB in place.")
 	cue_parser.add_argument("-ow", "--output-awb-path", required=False, help="Optional path to modified streaming AWB file. If omitted, will modify input AWB in place.")
 
-	#acb.AddTracksToCue(streaming, inputBytesList, args.new_audio_type, args.cue_id, baseTrackWithinCue=args.base_track_num)
 	track_parser = subparsers.add_parser("add_simple_track", help="Use the provided audio files to create new AWB entries and simple tracks pointing to them in the provided cue.")
 	track_parser.add_argument("--cue-id", type=int, required=True, help="Cue ID of existing cue to add tracks to.")
+	track_parser.add_argument("--sequence-type", required=False, choices=[""]+[x.name for x in SequenceType], default="RandomNoRepeat", help="Name of the sequence type for the cue, if you want to change it.")
 	track_parser.add_argument("--new-audio-type", required=False, choices=[x.name for x in ExtEncode], default="ADX", help="Name of the (shared) audio format of the new file(s).")
 	track_parser.add_argument("--new-audio-path", required=True, action="append", help="Path(s) to audio file(s) to be added to the new cue's sequence.")
 	track_parser.add_argument("--base-track-num", type=int, required=False, help="Track # (starting from 1) of existing track within the cue to base commands off of.")
@@ -136,11 +136,14 @@ def main():
 				acb.ReplaceWaveform(awb_id, streaming, inputBytes, replacementType=ExtEncode[args.new_audio_type].value)
 		elif args.action == "add_simple_cue":
 			seqType = None
-			if args.sequence_type is not None:
+			if args.sequence_type:
 				seqType = SequenceType[args.sequence_type].value
 			acb.AddWaveformAndCue(streaming, inputBytesList, args.new_audio_type, args.cue_name, args.cue_id, seqType=seqType, baseCueId=args.base_cue_id)
 		elif args.action == "add_simple_track":
-			acb.AddTracksToCue(streaming, inputBytesList, args.new_audio_type, args.cue_id, baseTrackWithinCue=args.base_track_num-1)
+			seqType = None
+			if args.sequence_type:
+				seqType = SequenceType[args.sequence_type].value
+			acb.AddTracksToCue(streaming, inputBytesList, args.new_audio_type, args.cue_id, seqType=seqType, baseTrackWithinCue=args.base_track_num-1)
 
 		acb.AcbStruct.write_right(args.output_acb_path)
 		if args.output_awb_path is not None:
