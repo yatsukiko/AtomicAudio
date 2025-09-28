@@ -88,7 +88,7 @@ For more details, run `python AtomicAudioTool.py replace_waveform --help`.
 
 ### `add_simple_cue`
 
-Extremely simplified way of adding a simple cue that's just a single waveform containing the provided audio file. For example:
+Extremely simplified way of adding a simple cue that's just a single waveform containing the provided audio file. Additional parameters may be populated by optionally providing a base cue to copy from. For example:
 
 ```
 python -u AtomicAudioTool.py add_simple_cue \
@@ -99,6 +99,7 @@ python -u AtomicAudioTool.py add_simple_cue \
   --key-code 9923540143823782 \
   --cue-id 25 \
   --cue-name MyNewCue \
+  --base-cue-id 1 \
   --new-audio-path /PATH/TO/MY/NEW.ADX \
   --new-audio-type ADX
 ```
@@ -107,6 +108,25 @@ python -u AtomicAudioTool.py add_simple_cue \
 - Add more customization re: the type of cue and extra settings for it
 
 For more details, run `python AtomicAudioTool.py add_simple_cue --help`.
+
+### `add_simple_track`
+
+Extremely simplified way of adding tracks to an existing cue, where each track just contains a single waveform containing the provided audio file. Additional parameters may be populated by optionally providing a base track (from among the cue's existing track) to copy from. For example:
+
+```
+python -u AtomicAudioTool.py add_simple_track \
+  --input-acb-path /PATH/TO/MY/P5RPC/VANILLA.ACB \
+  --input-awb-path /PATH/TO/MY/P5RPC/VANILLA.AWB \
+  --output-acb-path /PATH/TO/MY/P5RPC/MODDED.ACB \
+  --output-awb-path /PATH/TO/MY/P5RPC/MODDED.AWB \
+  --key-code 9923540143823782 \
+  --cue-id 0 \
+  --base-track-num 1 \
+  --new-audio-path /PATH/TO/MY/NEW.ADX \
+  --new-audio-type ADX
+```
+
+For more details, run `python AtomicAudioTool.py add_simple_track --help`.
 
 ## Credits
 

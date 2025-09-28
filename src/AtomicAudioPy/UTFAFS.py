@@ -446,24 +446,24 @@ class RefData(Serializable):
 class AFS2(Serializable):
 
 	def __init__(self):
-		self.Magic = None
+		self.Magic = "AFS2"
 
-		self.Type = None
-		self.PositionFieldLength = None
-		self.IdFieldLength = None
-		self.Padding = None
+		self.Type = 1
+		self.PositionFieldLength = 4
+		self.IdFieldLength = 2
+		self.Padding = 0
 
-		self.EntryCount = None
-		self.Align = None
-		self.Key = None
+		self.EntryCount = 0
+		self.Align = 32
+		self.Key = 0
 
-		self.EntryIds = None
-		self.EntryPositions = None
+		self.EntryIds = list()
+		self.EntryPositions = list()
 
-		self.EndPosition = None
+		self.EndPosition = AfsValue(fieldLength=self.PositionFieldLength)
 
-		self.EntryPads = None
-		self.EntryData = None
+		self.EntryPads = list()
+		self.EntryData = list()
 
 		self.IdToInd = dict()
 
@@ -555,7 +555,7 @@ class AFS2(Serializable):
 				notHeaderOnly = rw.peek_bytestream(1)
 				rw.seek(checkpoint, 0)
 			else:
-				notHeaderOnly = (self.EntryData is not None)
+				notHeaderOnly = bool(self.EntryData)
 			if notHeaderOnly:
 				self.get_entries(rw)
 
@@ -607,9 +607,9 @@ class AFS2(Serializable):
 
 class AfsValue(Serializable):
 
-	def __init__(self):
-		self.FieldLength = None
-		self.Value = None
+	def __init__(self, fieldLength=4):
+		self.FieldLength = fieldLength
+		self.Value = 0
 
 	def __rw_hook__(self, rw, fieldLength):
 		self.FieldLength = fieldLength

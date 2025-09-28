@@ -452,8 +452,11 @@ class ACB:
 
 	# new AWB entry
 	def AddAwbEntry(self, streaming, newBytes, awbId=None):
-		awbMap = self.StreamAwbStruct.IdToInd if streaming else self.MemoryAwbStruct.Id2Ind
+		if not streaming and not self.MemoryAwbStruct:
+			self.MemoryAwbStruct = AFS2()
+		awbMap = self.StreamAwbStruct.IdToInd if streaming else self.MemoryAwbStruct.IdToInd
 		if awbId is None:
+			awbId = 0
 			for existingId in awbMap:
 				if existingId+1 not in awbMap:
 					awbId = existingId+1
@@ -464,7 +467,7 @@ class ACB:
 		assert awb is not None
 
 		awb.EntryCount += 1
-		entry = max([entry2.Value for entry2 in awb.EntryIds]) + 1
+		entry = (max([entry2.Value for entry2 in awb.EntryIds]) if awb.EntryIds else 0) + 1
 
 		entryId = AfsValue()
 		entryId.FieldLength = awb.IdFieldLength
@@ -515,6 +518,7 @@ class ACB:
 			"NumSamples": audio.SampleCount,
 			"ExtensionData": 0xFFFF, # ...but it seems like ACB loop extras go here... TODO
 			"StreamAwbPortNo": 0, # multiple AWBs??
+			"LipMorthIndex": 0xFFFF, # only in recent versions... older versions will just ignore this
 		}
 		if self.SimpleAwbId:
 			rowFields["Id"] = awbId
@@ -657,6 +661,8 @@ class ACB:
 				"Type": 0 if seqType is None else seqType,
 				"ControlWorkArea1": 1,
 				"ControlWorkArea2": 1,
+				"InstPluginTrackStartIndex": 0xFFFF, # only in recent versions... older versions will just ignore this
+				"NumInstPluginTracks": 0, # (ditto)
 			})
 		else:
 			self.Tables["Sequence"].CopyRow(baseSeqInd)
@@ -676,7 +682,7 @@ class ACB:
 
 		return seqRow
 
-	def AddCueRow(self, length, seqRow, cueId=None):
+	def AddCueRow(self, length, seqRow, cueId=None, numWaveforms=0):
 		if cueId is None:
 			for existingId in self.CueId2CueRow:
 				if existingId+1 not in self.CueId2CueRow:
@@ -696,6 +702,7 @@ class ACB:
 			"Length": length,
 			"NumAisacControlMaps": 0,
 			"HeaderVisibility": 1,
+			"NumRelatedWaveforms": numWaveforms, # only in recent versions... older versions will just ignore this
 		})
 		return cueId, cueRow
 
@@ -718,39 +725,38 @@ class ACB:
 		baseSeqInd = None
 		baseTrack = list()
 		baseTrackSynth = list()
-		if baseCueId:
+		if baseCueId is not None:
 			cueRow = self.CueId2CueRow[baseCueId]
 			refType = self.Tables["Cue"].GetRowField(cueRow, "ReferenceType").Value
 			refIndex = self.Tables["Cue"].GetRowField(cueRow, "ReferenceIndex").Value
 			if ReferenceType(refType) == ReferenceType.Sequence or ReferenceType(refType) == ReferenceType.LinkedSequence:
 				baseSeqInd = refIndex
-
-			# for each track in the base seq, get first synth
-			# track events are simplified rather than copied
-			# if we have more tracks than the original sequence, we reference the 0th
-			numTracks = self.Tables["Sequence"].GetRowField(baseSeqInd, "NumTracks").Value
-			trackIndex = self.Tables["Sequence"].GetRowField(baseSeqInd, "TrackIndex").Value.Value
-			assert len(trackIndex) == 2*numTracks
-			for i in range(numTracks):
-				baseTrackSynth.append(None)
-				trackId = (trackIndex[2*i] << 8) + trackIndex[(2*i)+1]
-				baseTrack.append(trackId)
-				eventIndex = self.Tables["Track"].GetRowField(trackId, "EventIndex").Value
-				cmdBytes = list(self.Tables["TrackEvent"].GetRowField(eventIndex, "Command").Value.Value)
-				while cmdBytes and cmdBytes != [0]:
-					cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
-					paramCount = cmdBytes.pop(0)
-					params = [cmdBytes.pop(0) for j in range(paramCount)]
-					if CommandType(cmdType) == CommandType.NoteOn:
-						refType2, refIndex2 = ParamsToArgs(params, [2, 2])
-						if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
-							baseTrackSynth[-1] = refIndex2
-							break
-					elif CommandType(cmdType) == CommandType.NoteOnWithNo:
-						refType2, refIndex2, unk = ParamsToArgs(params, [2, 2, 2])
-						if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
-							baseTrackSynth[-1] = refIndex2
-							break
+				# for each track in the base seq, get first synth
+				# track events are simplified rather than copied
+				# if we have more tracks than the original sequence, we reference the 0th
+				numTracks = self.Tables["Sequence"].GetRowField(baseSeqInd, "NumTracks").Value
+				trackIndex = self.Tables["Sequence"].GetRowField(baseSeqInd, "TrackIndex").Value.Value
+				assert len(trackIndex) == 2*numTracks
+				for i in range(numTracks):
+					baseTrackSynth.append(None)
+					trackId = (trackIndex[2*i] << 8) + trackIndex[(2*i)+1]
+					baseTrack.append(trackId)
+					eventIndex = self.Tables["Track"].GetRowField(trackId, "EventIndex").Value
+					cmdBytes = list(self.Tables["TrackEvent"].GetRowField(eventIndex, "Command").Value.Value)
+					while cmdBytes and cmdBytes != [0]:
+						cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
+						paramCount = cmdBytes.pop(0)
+						params = [cmdBytes.pop(0) for j in range(paramCount)]
+						if CommandType(cmdType) == CommandType.NoteOn:
+							refType2, refIndex2 = ParamsToArgs(params, [2, 2])
+							if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
+								baseTrackSynth[-1] = refIndex2
+								break
+						elif CommandType(cmdType) == CommandType.NoteOnWithNo:
+							refType2, refIndex2, unk = ParamsToArgs(params, [2, 2, 2])
+							if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
+								baseTrackSynth[-1] = refIndex2
+								break
 
 		trackRows = list()
 		for i in range(len(newBytesList)):
@@ -759,9 +765,9 @@ class ACB:
 			# new Waveform row
 			length, waveRow = self.AddWaveformRow(streaming, ExtEncode[newType].value, awbId)
 			# maybe new SynthCommand row
-			baseSynthInd = None
-			if i < len(baseTrackSynth): baseSynthInd = baseTrackSynth[i]
-			elif baseTrackSynth: baseSynthInd = baseTrackSynth[0]
+			#baseSynthInd = None
+			#if i < len(baseTrackSynth): baseSynthInd = baseTrackSynth[i]
+			#elif baseTrackSynth: baseSynthInd = baseTrackSynth[0]
 			# new Synth row
 			synthRow = self.AddSynthRow(waveRow, baseSynthInd=(baseTrackSynth[i] if i < len(baseTrackSynth) else baseTrackSynth[0] if baseTrackSynth else None))
 			# new TrackEvent row
@@ -793,13 +799,76 @@ class ACB:
 		# new Sequence row
 		seqRow = self.AddSequenceRow(trackRows, cmdRow=seqCmdRow, seqType=seqType, baseSeqInd=baseSeqInd)
 		# new Cue row
-		cueId, cueRow = self.AddCueRow(length, seqRow, cueId=cueId)
+		cueId, cueRow = self.AddCueRow(length, seqRow, cueId=cueId, numWaveforms=len(newBytesList))
 		# new CueName row
 		if cueName is None:
 			cueName = f"Cue{cueId}"
 		cueNameRow = self.AddCueNameRow(cueName, cueRow)
 
 		return cueId, cueNameRow
+
+	def AddTracksToCue(self, streaming, newBytesList, newType, cueId, baseTrackWithinCue=None):
+
+		cueRow = self.CueId2CueRow[cueId]
+		refType = self.Tables["Cue"].GetRowField(cueRow, "ReferenceType").Value
+		refIndex = self.Tables["Cue"].GetRowField(cueRow, "ReferenceIndex").Value
+		# if this isn't true then idklol
+		assert ReferenceType(refType) == ReferenceType.Sequence or ReferenceType(refType) == ReferenceType.LinkedSequence
+		seqRow = refIndex
+		originalNumTracks = self.Tables["Sequence"].GetRowField(seqRow, "NumTracks").Value
+		originalTrackIndex = self.Tables["Sequence"].GetRowField(seqRow, "TrackIndex").Value.Value
+		assert len(originalTrackIndex) == 2*originalNumTracks
+
+		baseTrack = None
+		baseTrackSynth = None
+		if baseTrackWithinCue is not None:
+			# for each track in the base seq, get first synth
+			# track events are simplified rather than copied
+			# if we have more tracks than the original sequence, we reference the 0th
+			assert baseTrackWithinCue >= 0 and baseTrackWithinCue < originalNumTracks
+			baseTrack = (originalTrackIndex[2*baseTrackWithinCue] << 8) + originalTrackIndex[(2*baseTrackWithinCue)+1]
+			eventIndex = self.Tables["Track"].GetRowField(baseTrack, "EventIndex").Value
+			cmdBytes = list(self.Tables["TrackEvent"].GetRowField(eventIndex, "Command").Value.Value)
+			while cmdBytes and cmdBytes != [0]:
+				cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
+				paramCount = cmdBytes.pop(0)
+				params = [cmdBytes.pop(0) for j in range(paramCount)]
+				if CommandType(cmdType) == CommandType.NoteOn:
+					refType2, refIndex2 = ParamsToArgs(params, [2, 2])
+					if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
+						baseTrackSynth = refIndex2
+						break
+				elif CommandType(cmdType) == CommandType.NoteOnWithNo:
+					refType2, refIndex2, unk = ParamsToArgs(params, [2, 2, 2])
+					if ReferenceType(refType2) == ReferenceType.Synth or ReferenceType(refType2) == ReferenceType.LinkedSynth:
+						baseTrackSynth = refIndex2
+						break
+
+		newTrackBytes = list(originalTrackIndex)
+		#trackRows = list()
+		for i in range(len(newBytesList)):
+			# new AWB entry
+			awbId = self.AddAwbEntry(streaming, newBytesList[i])
+			# new Waveform row
+			length, waveRow = self.AddWaveformRow(streaming, ExtEncode[newType].value, awbId)
+			# maybe new SynthCommand row
+			# new Synth row
+			synthRow = self.AddSynthRow(waveRow, baseSynthInd=baseTrackSynth)
+			# new TrackEvent row
+			trackEventRow = self.AddTrackEventRow(synthRow)
+			#trackEventRow = self.AddLinkCommandRow(cueId)
+			# new Track row
+			trackRow = self.AddTrackRow(trackEventRow, baseTrackInd=baseTrack)
+			#trackRows.append(trackRow)
+			newTrackBytes.append((trackRow >> 8) & 0xFF)
+			newTrackBytes.append(trackRow & 0xFF)
+
+		newTrackIndex = RefData(length=4, magic=b"\x00"*4, value=array.array("B", newTrackBytes))
+		self.Tables["Sequence"].SetRowField(seqRow, "NumTracks", originalNumTracks + len(newBytesList))
+		self.Tables["Sequence"].SetRowField(seqRow, "TrackIndex", newTrackIndex)
+
+		originalWaveformCount = self.Tables["Cue"].GetRowField(cueRow, "NumRelatedWaveforms").Value
+		self.Tables["Cue"].SetRowField(cueRow, "NumRelatedWaveforms", originalWaveformCount + len(newBytesList))
 
 	def SetSeqCommandRow(self, cmdRow, cmdBytes):
 		self.Tables["SeqCommand"].SetRow(cmdRow, {

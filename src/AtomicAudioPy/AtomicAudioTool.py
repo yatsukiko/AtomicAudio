@@ -13,7 +13,7 @@ from UTFAFS import UTF
 def main():
 
 	parser = argparse.ArgumentParser(prog="AtomicAudioTool", description="Basic editing utility for Cri ACB project files.")
-	subparsers = parser.add_subparsers(dest="action", help="Specify whether you want to do to_xml, print_info, extract_audio, replace_waveform, or add_simple_cue.")
+	subparsers = parser.add_subparsers(dest="action", help="Specify whether you want to do to_xml, print_info, extract_audio, replace_waveform, add_simple_cue, or add_simple_track.")
 
 	xml_parser = subparsers.add_parser("to_xml", help="Deserialize an ACB or ACF as XML.")
 	xml_parser.add_argument("-i", "--input-utf", required=True, help="Path to ACB or ACF file to deserialize.")
@@ -57,6 +57,19 @@ def main():
 	cue_parser.add_argument("-oc", "--output-acb-path", required=False, help="Optional path to modified ACB file. If omitted, will modify input ACB in place.")
 	cue_parser.add_argument("-ow", "--output-awb-path", required=False, help="Optional path to modified streaming AWB file. If omitted, will modify input AWB in place.")
 
+	#acb.AddTracksToCue(streaming, inputBytesList, args.new_audio_type, args.cue_id, baseTrackWithinCue=args.base_track_num)
+	track_parser = subparsers.add_parser("add_simple_track", help="Use the provided audio files to create new AWB entries and simple tracks pointing to them in the provided cue.")
+	track_parser.add_argument("--cue-id", type=int, required=True, help="Cue ID of existing cue to add tracks to.")
+	track_parser.add_argument("--new-audio-type", required=False, choices=[x.name for x in ExtEncode], default="ADX", help="Name of the (shared) audio format of the new file(s).")
+	track_parser.add_argument("--new-audio-path", required=True, action="append", help="Path(s) to audio file(s) to be added to the new cue's sequence.")
+	track_parser.add_argument("--base-track-num", type=int, required=False, help="Track # (starting from 1) of existing track within the cue to base commands off of.")
+	#track_parser.add_argument("--convert-input", action=argparse.BooleanOptionalAction, help="If provided, will convert input audio file to ADX.")
+	track_parser.add_argument("-k", "--key-code", type=int, required=False, help="If provided, will encrypt input ADX file.") # (whether ADX at source or converted via --convert-input).")
+	track_parser.add_argument("-ic", "--input-acb-path", required=True, help="Path to ACB file to modify.")
+	track_parser.add_argument("-iw", "--input-awb-path", required=False, help="Path to streaming AWB file to modify. If provided, will try to add audio to the external (streaming) AWB. Otherwise, will try to add to the in-memory AWB inside the ACB.")
+	track_parser.add_argument("-oc", "--output-acb-path", required=False, help="Optional path to modified ACB file. If omitted, will modify input ACB in place.")
+	track_parser.add_argument("-ow", "--output-awb-path", required=False, help="Optional path to modified streaming AWB file. If omitted, will modify input AWB in place.")
+
 	args = parser.parse_args()
 	if args.action == "to_xml":
 		utf = UTF()
@@ -84,7 +97,7 @@ def main():
 				args.output_directory = str(Path(args.input_acb_path).with_suffix(""))
 			os.makedirs(args.output_directory, exist_ok=True)
 			acb.Extract(args.output_directory, keycode=args.key_code, printing=args.print_info, nameByCue=args.name_by_cue)
-	elif args.action == "replace_waveform" or args.action == "add_simple_cue":
+	elif args.action == "replace_waveform" or args.action == "add_simple_cue" or args.action == "add_simple_track":
 		if args.action == "replace_waveform":
 			assert len(args.awb_id) == len(args.new_audio_path)
 
@@ -126,6 +139,8 @@ def main():
 			if args.sequence_type is not None:
 				seqType = SequenceType[args.sequence_type].value
 			acb.AddWaveformAndCue(streaming, inputBytesList, args.new_audio_type, args.cue_name, args.cue_id, seqType=seqType, baseCueId=args.base_cue_id)
+		elif args.action == "add_simple_track":
+			acb.AddTracksToCue(streaming, inputBytesList, args.new_audio_type, args.cue_id, baseTrackWithinCue=args.base_track_num-1)
 
 		acb.AcbStruct.write_right(args.output_acb_path)
 		if args.output_awb_path is not None:
