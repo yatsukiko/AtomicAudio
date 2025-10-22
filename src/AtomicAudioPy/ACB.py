@@ -182,14 +182,12 @@ class ACB:
 			level = ParamsToArgs(params, [2])[0]
 			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, level))
 		elif CommandType(cmdType) == CommandType.Category:
-			assert paramCount == 4 or paramCount == 8
-			if paramCount == 4:
-				acfCategoryId = ParamsToArgs(params, [4])[0]
-			elif paramCount == 8:
-				unkIntParam, acfCategoryId = ParamsToArgs(params, [4, 4])
-			assert acfCategoryId in self.AcfCategories
-			acfCategory = self.AcfCategories[acfCategoryId]
-			print("{}{} = \"{}\"".format(" "*(depth+2), CommandType(cmdType).name, acfCategory))
+			assert paramCount % 4 == 0
+			acfCategories = list()
+			for acfCategoryId in ParamsToArgs(params, [4]*(paramCount//4)):
+				assert acfCategoryId in self.AcfCategories
+				acfCategories.append(self.AcfCategories[acfCategoryId])
+			print("{}{} = {}".format(" "*(depth+2), CommandType(cmdType).name, ", ".join(acfCategories)))
 			assert not params
 		elif CommandType(cmdType) == CommandType.GlobalAisacReference:
 			ind = ParamsToArgs(params, [2])[0]
@@ -1150,10 +1148,16 @@ class CommandType(Enum):
 	Unk127										= 127
 	Unk128										= 128
 	#####
+	Unk146										= 146
+	Unk147										= 147
+	#####
+	Unk997										= 997
 	SequenceStartRandom							= 998
 	SequenceStart								= 999
 	NoteOff										= 1000
 	NoteOnWithOff								= 1001
+	#####
+	Unk1199										= 1199
 	#####
 	LoopEnd										= 1200
 	LoopStart									= 1201
