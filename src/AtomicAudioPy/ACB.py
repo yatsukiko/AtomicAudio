@@ -933,7 +933,7 @@ class ACB:
 						assert self.Tables["Waveform"].GetRowField(i, "StreamAwbId").Value == 65535
 						awbId = self.Tables["Waveform"].GetRowField(i, "MemoryAwbId").Value
 				audio = None
-				if awb is not None:
+				if awb is not None and (printing or keycode is not None):
 					if EncodeExt[encodeType] == "ADX":
 						audio = ADX()
 						audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
