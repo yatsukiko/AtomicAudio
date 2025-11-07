@@ -252,7 +252,7 @@ class ACB:
 					awbId = self.Tables["Waveform"].GetRowField(refIndex, "MemoryAwbId").Value
 			#assert awb is not None
 			audio = None
-			if awb is not None:
+			if awb is not None and (printing or (extracting and keycode is not None)):
 				if EncodeExt[encodeType] == "ADX":
 					audio = ADX()
 					audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
