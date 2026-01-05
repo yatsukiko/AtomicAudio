@@ -57,13 +57,6 @@ class HCA(Serializable):
 			self.LoopStartSample	= 1024*self.Header.LoopChunk.LoopStartFrame + self.Header.LoopChunk.PreLoopSamples
 			self.LoopEndSample		= 1024*(self.Header.LoopChunk.LoopEndFrame + 1) - self.Header.LoopChunk.PostLoopSamples
 
-		crc = CRC16()
-		for i in range(self.FrameCount):
-			frame = self.Data[i*self.FrameSize:(i+1)*self.FrameSize]
-			assert len(frame) == self.FrameSize
-			if crc.Compute(frame, len(frame)-2) != (frame[-2] << 8) | frame[-1]:
-				raise ValueError(f"Checksum for frame {i} is invalid.")
-
 		failed = False
 		try:
 			rw.assert_eof()
@@ -71,6 +64,14 @@ class HCA(Serializable):
 			print("Failed to read file!")
 			remainder = rw.peek_bytestream(64)
 			print(len(remainder), remainder)
+
+	def ValidateChecksum():
+		crc = CRC16()
+		for i in range(self.FrameCount):
+			frame = self.Data[i*self.FrameSize:(i+1)*self.FrameSize]
+			assert len(frame) == self.FrameSize
+			if crc.Compute(frame, len(frame)-2) != (frame[-2] << 8) | frame[-1]:
+				raise ValueError(f"Checksum for frame {i} is invalid.")
 
 	def Crypt(self, keycode=None):
 		# encrypt
