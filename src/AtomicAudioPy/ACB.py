@@ -104,7 +104,8 @@ class ACB:
 				if self.SimpleAwbId:
 					awbId = self.Tables["Waveform"].GetRowField(j, "Id").Value
 				else:
-					assert self.Tables["Waveform"].GetRowField(j, "MemoryAwbId").Value == 0xFFFF
+					# newer (?) versions like in SH2 don't guarantee this apparently. weird!
+					#assert self.Tables["Waveform"].GetRowField(j, "MemoryAwbId").Value == 0xFFFF
 					awbId = self.Tables["Waveform"].GetRowField(j, "StreamAwbId").Value
 				if awbId not in self.StreamAwbId2WaveformRow:
 					self.StreamAwbId2WaveformRow[awbId] = set()
@@ -113,7 +114,7 @@ class ACB:
 				if self.SimpleAwbId:
 					awbId = self.Tables["Waveform"].GetRowField(j, "Id").Value
 				else:
-					assert self.Tables["Waveform"].GetRowField(j, "StreamAwbId").Value == 0xFFFF
+					#assert self.Tables["Waveform"].GetRowField(j, "StreamAwbId").Value == 0xFFFF
 					awbId = self.Tables["Waveform"].GetRowField(j, "MemoryAwbId").Value
 				if awbId not in self.MemoryAwbId2WaveformRow:
 					self.MemoryAwbId2WaveformRow[awbId] = set()
