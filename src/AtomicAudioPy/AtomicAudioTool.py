@@ -149,7 +149,7 @@ def main():
 		if args.output_awb_path is not None:
 			acb.StreamAwbStruct.write_right(args.output_awb_path)
 	else:
-		raise ValueError("Command not recognized. Must be replace_waveform or add_simple_cue.")
+		raise ValueError(f"Command \"{args.action}\" not recognized. Must be among the following: to_xml, print_info, extract_audio, replace_waveform, add_simple_cue, add_simple_track")
 
 
 if __name__ == "__main__":
