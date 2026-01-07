@@ -43,8 +43,10 @@ class HCA(Serializable):
 			assert rw.tell() == self.Header.HeaderSize
 
 			self.Data = rw.rw_bytestring(self.Data, self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize)
-			# sometimes files contain dummy data so they violate this??? data is always of size 682 or 1364 in that case... the fuck......
+			# sometimes files contain dummy data -- i.e., only the first two frames, presumably to use a redundant in-memory header for streamed audio
 			#assert len(self.Data) == self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize
+			if len(self.Data) != self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize:
+				assert len(self.Data) == 2*self.Header.CompChunk.FrameSize
 
 		self.ChannelCount		= self.Header.FmtChunk.ChannelCount
 		self.SampleRate			= self.Header.FmtChunk.SampleRate
