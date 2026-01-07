@@ -43,7 +43,8 @@ class HCA(Serializable):
 			assert rw.tell() == self.Header.HeaderSize
 
 			self.Data = rw.rw_bytestring(self.Data, self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize)
-			assert len(self.Data) == self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize
+			# sometimes files contain dummy data so they violate this??? data is always of size 682 or 1364 in that case... the fuck......
+			#assert len(self.Data) == self.Header.FmtChunk.FrameCount*self.Header.CompChunk.FrameSize
 
 		self.ChannelCount		= self.Header.FmtChunk.ChannelCount
 		self.SampleRate			= self.Header.FmtChunk.SampleRate

@@ -99,26 +99,33 @@ class ACB:
 		self.MemoryAwbId2WaveformRow = dict()
 		self.StreamAwbId2WaveformRow = dict()
 		for j in range(self.Tables["Waveform"].RowCount):
-			streaming = self.Tables["Waveform"].GetRowField(j, "Streaming").Value
-			if streaming:
-				if self.SimpleAwbId:
-					awbId = self.Tables["Waveform"].GetRowField(j, "Id").Value
+			streamingEnum = self.Tables["Waveform"].GetRowField(j, "Streaming").Value
+			toStreamOrNotToStream = list()
+			if streamingEnum == 0 or streamingEnum == 2:
+				toStreamOrNotToStream.append(False)
+			if streamingEnum == 1 or streamingEnum == 2:
+				toStreamOrNotToStream.append(True)
+			for streaming in toStreamOrNotToStream:
+				if streaming:
+					if self.SimpleAwbId:
+						awbId = self.Tables["Waveform"].GetRowField(j, "Id").Value
+					else:
+						awbId = self.Tables["Waveform"].GetRowField(j, "StreamAwbId").Value
+						if streamingEnum == 1:
+							assert self.Tables["Waveform"].GetRowField(j, "MemoryAwbId").Value == 0xFFFF
+					if awbId not in self.StreamAwbId2WaveformRow:
+						self.StreamAwbId2WaveformRow[awbId] = set()
+					self.StreamAwbId2WaveformRow[awbId].add(j)
 				else:
-					# newer (?) versions like in SH2 don't guarantee this apparently. weird!
-					#assert self.Tables["Waveform"].GetRowField(j, "MemoryAwbId").Value == 0xFFFF
-					awbId = self.Tables["Waveform"].GetRowField(j, "StreamAwbId").Value
-				if awbId not in self.StreamAwbId2WaveformRow:
-					self.StreamAwbId2WaveformRow[awbId] = set()
-				self.StreamAwbId2WaveformRow[awbId].add(j)
-			else:
-				if self.SimpleAwbId:
-					awbId = self.Tables["Waveform"].GetRowField(j, "Id").Value
-				else:
-					#assert self.Tables["Waveform"].GetRowField(j, "StreamAwbId").Value == 0xFFFF
-					awbId = self.Tables["Waveform"].GetRowField(j, "MemoryAwbId").Value
-				if awbId not in self.MemoryAwbId2WaveformRow:
-					self.MemoryAwbId2WaveformRow[awbId] = set()
-				self.MemoryAwbId2WaveformRow[awbId].add(j)
+					if self.SimpleAwbId:
+						awbId = self.Tables["Waveform"].GetRowField(j, "Id").Value
+					else:
+						awbId = self.Tables["Waveform"].GetRowField(j, "MemoryAwbId").Value
+						if streamingEnum == 0:
+							assert self.Tables["Waveform"].GetRowField(j, "StreamAwbId").Value == 0xFFFF
+					if awbId not in self.MemoryAwbId2WaveformRow:
+						self.MemoryAwbId2WaveformRow[awbId] = set()
+					self.MemoryAwbId2WaveformRow[awbId].add(j)
 
 	def RefreshHash(self):
 		#if self.AwbPath is not None:
@@ -234,73 +241,82 @@ class ACB:
 
 	def RecursivelyGetReferences(self, refType, refIndex, depth=0, ind=0, printing=False, keycode=None, outputFormat=None, path="", extracting=False):
 		if ReferenceType(refType) == ReferenceType.Waveform:
-			streaming = self.Tables["Waveform"].GetRowField(refIndex, "Streaming").Value
+			streamingEnum = self.Tables["Waveform"].GetRowField(refIndex, "Streaming").Value
 			encodeType = self.Tables["Waveform"].GetRowField(refIndex, "EncodeType").Value
 			extIndex = self.Tables["Waveform"].GetRowField(refIndex, "ExtensionData").Value
-			if streaming:
-				awb = self.StreamAwbStruct
-				if self.SimpleAwbId:
-					awbId = self.Tables["Waveform"].GetRowField(refIndex, "Id").Value
+			toStreamOrNotToStream = list()
+			if streamingEnum == 0 or streamingEnum == 2:
+				toStreamOrNotToStream.append(False)
+			if streamingEnum == 1 or streamingEnum == 2:
+				toStreamOrNotToStream.append(True)
+			for streaming in toStreamOrNotToStream:
+				if streaming:
+					awb = self.StreamAwbStruct
+					if self.SimpleAwbId:
+						awbId = self.Tables["Waveform"].GetRowField(refIndex, "Id").Value
+					else:
+						awbId = self.Tables["Waveform"].GetRowField(refIndex, "StreamAwbId").Value
+						if streamingEnum == 1:
+							assert self.Tables["Waveform"].GetRowField(refIndex, "MemoryAwbId").Value == 0xFFFF
 				else:
-					assert self.Tables["Waveform"].GetRowField(refIndex, "MemoryAwbId").Value == 65535
-					awbId = self.Tables["Waveform"].GetRowField(refIndex, "StreamAwbId").Value
-			else:
-				awb = self.MemoryAwbStruct
-				if self.SimpleAwbId:
-					awbId = self.Tables["Waveform"].GetRowField(refIndex, "Id").Value
-				else:
-					assert self.Tables["Waveform"].GetRowField(refIndex, "StreamAwbId").Value == 65535
-					awbId = self.Tables["Waveform"].GetRowField(refIndex, "MemoryAwbId").Value
-			#assert awb is not None
-			audio = None
-			if awb is not None and (printing or (extracting and keycode is not None)):
-				if EncodeExt[encodeType] == "ADX":
-					audio = ADX()
-					audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
-				elif EncodeExt[encodeType] == "HCA":
-					audio = HCA()
-					audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
-			if printing:
-				print("{}Waveform from {} AWB".format(" "*depth, "Streaming" if streaming else "Memory"))
-				print("{}ID: {}".format(" "*(depth+1), awbId))
-				print("{}Type: {}".format(" "*(depth+1), EncodeExt[encodeType]))
-				print("{}Channels: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "NumChannels").Value))
-				print("{}Loop: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "LoopFlag").Value))
-				if extIndex != 0xFFFF:
-					print("{}Loop Start: {}".format(" "*(depth+2), self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopStart").Value))
-					print("{}Loop End: {}".format(" "*(depth+2), self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopEnd").Value))
-				print("{}Sampling Rate: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "SamplingRate").Value))
-				print("{}Samples: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "NumSamples").Value))
-				if audio is not None:
-					print("{}Audio File:".format(" "*(depth+1)))
-					print("{}Channels: {}".format(" "*(depth+2), audio.ChannelCount))
-					print("{}Loops: {}".format(" "*(depth+2), audio.LoopCount))
-					if audio.LoopCount:
-						print("{}Loop Start: {}".format(" "*(depth+3), audio.LoopStartSample - audio.InsertedSamples))
-						print("{}Loop End: {}".format(" "*(depth+3), audio.LoopEndSample - audio.InsertedSamples))
-					print("{}Sampling Rate: {}".format(" "*(depth+2), audio.SampleRate))
-					print("{}Samples: {}".format(" "*(depth+2), audio.SampleCount))
-			if extracting:
-				if outputFormat is not None:
-					output_ext = outputFormat
-				else:
-					output_ext = EncodeExt[encodeType]
-				filename = f"{path}.{output_ext}"
-				if audio is not None:
-					if keycode is not None:
-						if EncodeExt[encodeType] == "ADX":
-							audio.decrypt(keycode)
-						elif EncodeExt[encodeType] == "HCA":
-							if awb.Key:
-								audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
-							else:
-								audio.Crypt(keycode)
-					audio.write_right(filename)
-				elif awb is not None:
-					with open(filename, "wb") as f:
-						f.write(awb.EntryData[awbId])
-				else:
-					print("{}Matching AWB not found; skipping extraction for {}.".format(" "*(depth+3) if printing else "", filename))
+					awb = self.MemoryAwbStruct
+					if self.SimpleAwbId:
+						awbId = self.Tables["Waveform"].GetRowField(refIndex, "Id").Value
+					else:
+						awbId = self.Tables["Waveform"].GetRowField(refIndex, "MemoryAwbId").Value
+						if streamingEnum == 0:
+							assert self.Tables["Waveform"].GetRowField(refIndex, "StreamAwbId").Value == 0xFFFF
+				#assert awb is not None
+				audio = None
+				if awb is not None and (printing or (extracting and keycode is not None)):
+					if EncodeExt[encodeType] == "ADX":
+						audio = ADX()
+						audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
+					elif EncodeExt[encodeType] == "HCA":
+						audio = HCA()
+						audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
+				if printing:
+					print("{}Waveform{} from {} AWB".format(" "*depth, "" if streaming or not streamingEnum else " (Dummy)", "Streaming" if streaming else "Memory"))
+					print("{}ID: {}".format(" "*(depth+1), awbId))
+					print("{}Type: {}".format(" "*(depth+1), EncodeExt[encodeType]))
+					print("{}Channels: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "NumChannels").Value))
+					print("{}Loop: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "LoopFlag").Value))
+					if extIndex != 0xFFFF:
+						print("{}Loop Start: {}".format(" "*(depth+2), self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopStart").Value))
+						print("{}Loop End: {}".format(" "*(depth+2), self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopEnd").Value))
+					print("{}Sampling Rate: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "SamplingRate").Value))
+					print("{}Samples: {}".format(" "*(depth+1), self.Tables["Waveform"].GetRowField(refIndex, "NumSamples").Value))
+					if audio is not None:
+						print("{}Audio File:".format(" "*(depth+1)))
+						print("{}Channels: {}".format(" "*(depth+2), audio.ChannelCount))
+						print("{}Loops: {}".format(" "*(depth+2), audio.LoopCount))
+						if audio.LoopCount:
+							print("{}Loop Start: {}".format(" "*(depth+3), audio.LoopStartSample - audio.InsertedSamples))
+							print("{}Loop End: {}".format(" "*(depth+3), audio.LoopEndSample - audio.InsertedSamples))
+						print("{}Sampling Rate: {}".format(" "*(depth+2), audio.SampleRate))
+						print("{}Samples: {}".format(" "*(depth+2), audio.SampleCount))
+				# i'm gonna say... for the sake of cue-based extraction, when streaming == 2, ignore the dummy memory waveform
+				if extracting and (streaming or not streamingEnum):
+					if outputFormat is not None:
+						output_ext = outputFormat
+					else:
+						output_ext = EncodeExt[encodeType]
+					filename = f"{path}.{output_ext}"
+					if audio is not None:
+						if keycode is not None:
+							if EncodeExt[encodeType] == "ADX":
+								audio.decrypt(keycode)
+							elif EncodeExt[encodeType] == "HCA":
+								if awb.Key:
+									audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
+								else:
+									audio.Crypt(keycode)
+						audio.write_right(filename)
+					elif awb is not None:
+						with open(filename, "wb") as f:
+							f.write(awb.EntryData[awbId])
+					else:
+						print("{}Matching AWB not found; skipping extraction for {}.".format(" "*(depth+3) if printing else "", filename))
 		elif ReferenceType(refType) == ReferenceType.Synth or ReferenceType(refType) == ReferenceType.LinkedSynth:
 			if printing:
 				print("{}Synth #{}".format(" "*depth, ind+1))
@@ -395,7 +411,7 @@ class ACB:
 		elif ReferenceType(refType) == ReferenceType.LinkedCue:
 			if self.Tables["OutsideLink"] is not None:
 				acbIndex = self.Tables["OutsideLink"].GetRowField(refIndex, "AcbNameStringIndex").Value
-				if acbIndex == 65535 and printing:
+				if acbIndex == 0xFFFF and printing:
 					linkId = self.Tables["OutsideLink"].GetRowField(refIndex, "Id").Value
 					print("{}Link to Cue #{}".format(" "*depth, linkId))
 
@@ -916,73 +932,81 @@ class ACB:
 					print()
 		else:
 			for i in range(self.Tables["Waveform"].RowCount):
-				streaming = self.Tables["Waveform"].GetRowField(i, "Streaming").Value
+				streamingEnum = self.Tables["Waveform"].GetRowField(i, "Streaming").Value
 				encodeType = self.Tables["Waveform"].GetRowField(i, "EncodeType").Value
 				extIndex = self.Tables["Waveform"].GetRowField(i, "ExtensionData").Value
-				if streaming:
-					awb = self.StreamAwbStruct
-					if self.SimpleAwbId:
-						awbId = self.Tables["Waveform"].GetRowField(i, "Id").Value
+				toStreamOrNotToStream = list()
+				if streamingEnum == 0 or streamingEnum == 2:
+					toStreamOrNotToStream.append(False)
+				if streamingEnum == 1 or streamingEnum == 2:
+					toStreamOrNotToStream.append(True)
+				for streaming in toStreamOrNotToStream:
+					if streaming:
+						awb = self.StreamAwbStruct
+						if self.SimpleAwbId:
+							awbId = self.Tables["Waveform"].GetRowField(i, "Id").Value
+						else:
+							awbId = self.Tables["Waveform"].GetRowField(i, "StreamAwbId").Value
+							if streamingEnum == 1:
+								assert self.Tables["Waveform"].GetRowField(i, "MemoryAwbId").Value == 0xFFFF
 					else:
-						assert self.Tables["Waveform"].GetRowField(i, "MemoryAwbId").Value == 65535
-						awbId = self.Tables["Waveform"].GetRowField(i, "StreamAwbId").Value
-				else:
-					awb = self.MemoryAwbStruct
-					if self.SimpleAwbId:
-						awbId = self.Tables["Waveform"].GetRowField(i, "Id").Value
-					else:
-						assert self.Tables["Waveform"].GetRowField(i, "StreamAwbId").Value == 65535
-						awbId = self.Tables["Waveform"].GetRowField(i, "MemoryAwbId").Value
-				audio = None
-				if awb is not None and (printing or keycode is not None):
-					if EncodeExt[encodeType] == "ADX":
-						audio = ADX()
-						audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
-					elif EncodeExt[encodeType] == "HCA":
-						audio = HCA()
-						audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
-				if printing:
-					print("Waveform from {} AWB".format("Streaming" if streaming else "Memory"))
-					print(" ID: {}".format(awbId))
-					print(" Type: {}".format(EncodeExt[encodeType]))
-					print(" Channels: {}".format(self.Tables["Waveform"].GetRowField(i, "NumChannels").Value))
-					print(" Loop: {}".format(self.Tables["Waveform"].GetRowField(i, "LoopFlag").Value))
-					if extIndex != 0xFFFF:
-						print("  Loop Start: {}".format(self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopStart").Value))
-						print("  Loop End: {}".format(self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopEnd").Value))
-					print(" Sampling Rate: {}".format(self.Tables["Waveform"].GetRowField(i, "SamplingRate").Value))
-					print(" Samples: {}".format(self.Tables["Waveform"].GetRowField(i, "NumSamples").Value))
-					if audio is not None:
-						print(" Audio File:")
-						print("  Channels: {}".format(audio.ChannelCount))
-						print("  Loops: {}".format(audio.LoopCount))
-						if audio.LoopCount:
-							print("   Loop Start: {}".format(audio.LoopStartSample))
-							print("   Loop End: {}".format(audio.LoopEndSample))
-						print("  Sampling Rate: {}".format(audio.SampleRate))
-						print("  Samples: {}".format(audio.SampleCount))
-				if outputFormat is not None:
-					output_ext = outputFormat
-				else:
-					output_ext = EncodeExt[encodeType]
-				filename = "{}/{}-{}.{}".format(base_path, "stream" if streaming else "memory", awbId, output_ext)
-				if audio is not None:
-					if keycode is not None:
+						awb = self.MemoryAwbStruct
+						if self.SimpleAwbId:
+							awbId = self.Tables["Waveform"].GetRowField(i, "Id").Value
+						else:
+							awbId = self.Tables["Waveform"].GetRowField(i, "MemoryAwbId").Value
+							if streamingEnum == 0:
+								assert self.Tables["Waveform"].GetRowField(i, "StreamAwbId").Value == 0xFFFF
+					audio = None
+					if awb is not None and (printing or keycode is not None):
 						if EncodeExt[encodeType] == "ADX":
-							audio.decrypt(keycode)
+							audio = ADX()
+							audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
 						elif EncodeExt[encodeType] == "HCA":
-							if awb.Key:
-								audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
-							else:
-								audio.Crypt(keycode)
-					audio.write_right(filename)
-				elif awb is not None:
-					with open(filename, "wb") as f:
-						f.write(awb.EntryData[awbId])
-				else:
-					print(f"   Matching AWB not found; skipping extraction for {filename}.")
-				if printing:
-					print()
+							audio = HCA()
+							audio.frombytes(awb.EntryData[awb.IdToInd[awbId]])
+					if printing:
+						print("Waveform from {} AWB".format("Streaming" if streaming else "Memory"))
+						print(" ID: {}".format(awbId))
+						print(" Type: {}".format(EncodeExt[encodeType]))
+						print(" Channels: {}".format(self.Tables["Waveform"].GetRowField(i, "NumChannels").Value))
+						print(" Loop: {}".format(self.Tables["Waveform"].GetRowField(i, "LoopFlag").Value))
+						if extIndex != 0xFFFF:
+							print("  Loop Start: {}".format(self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopStart").Value))
+							print("  Loop End: {}".format(self.Tables["WaveformExtensionData"].GetRowField(extIndex, "LoopEnd").Value))
+						print(" Sampling Rate: {}".format(self.Tables["Waveform"].GetRowField(i, "SamplingRate").Value))
+						print(" Samples: {}".format(self.Tables["Waveform"].GetRowField(i, "NumSamples").Value))
+						if audio is not None:
+							print(" Audio File:")
+							print("  Channels: {}".format(audio.ChannelCount))
+							print("  Loops: {}".format(audio.LoopCount))
+							if audio.LoopCount:
+								print("   Loop Start: {}".format(audio.LoopStartSample))
+								print("   Loop End: {}".format(audio.LoopEndSample))
+							print("  Sampling Rate: {}".format(audio.SampleRate))
+							print("  Samples: {}".format(audio.SampleCount))
+					if outputFormat is not None:
+						output_ext = outputFormat
+					else:
+						output_ext = EncodeExt[encodeType]
+					filename = "{}/{}-{}.{}".format(base_path, "stream" if streaming else "memory", awbId, output_ext)
+					if audio is not None:
+						if keycode is not None:
+							if EncodeExt[encodeType] == "ADX":
+								audio.decrypt(keycode)
+							elif EncodeExt[encodeType] == "HCA":
+								if awb.Key:
+									audio.Crypt(keycode * ((awb.Key << 16) | ((~awb.Key + 2) + 2**16)))
+								else:
+									audio.Crypt(keycode)
+						audio.write_right(filename)
+					elif awb is not None:
+						with open(filename, "wb") as f:
+							f.write(awb.EntryData[awbId])
+					else:
+						print(f"   Matching AWB not found; skipping extraction for {filename}.")
+					if printing:
+						print()
 
 
 def ParamsToArgs(paramBytes, argSizes):
