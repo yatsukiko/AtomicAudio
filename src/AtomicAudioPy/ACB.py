@@ -142,6 +142,73 @@ class ACB:
 			trueAwbHash = hashlib.md5(self.AwbBytes)
 			assert storedAwbHash == array.array("B", trueAwbHash.digest())
 
+	def _SanitizeFilename(self, s: str) -> str:
+		s = "" if s is None else str(s)
+		s = s.strip()
+		if not s:
+			return "unnamed"
+		invalid = set('<>:\\"/|?*')
+		s = "".join((c if c not in invalid else "_") for c in s)
+		s = " ".join(s.split())
+		s = s.strip(" .")
+		return s or "unnamed"
+
+	def _GetCueRelatedWaveformCount(self, cueRow: int) -> int:
+		if "NumRelatedWaveforms" in self.Tables["Cue"].FieldNames:
+			return self.Tables["Cue"].GetRowField(cueRow, "NumRelatedWaveforms").Value
+		refType = self.Tables["Cue"].GetRowField(cueRow, "ReferenceType").Value
+		refIndex = self.Tables["Cue"].GetRowField(cueRow, "ReferenceIndex").Value
+		return len(self._CollectWaveformRefs(refType, refIndex))
+
+	def _CollectWaveformRefs(self, refType, refIndex, _seen=None):
+		if _seen is None:
+			_seen = set()
+		key = (int(refType), int(refIndex))
+		if key in _seen:
+			return set()
+		_seen.add(key)
+
+		try:
+			rt = ReferenceType(refType)
+		except Exception:
+			return set()
+
+		if rt == ReferenceType.Waveform:
+			return {int(refIndex)}
+		if rt == ReferenceType.Synth or rt == ReferenceType.LinkedSynth:
+			refItems2 = self.Tables["Synth"].GetRowField(refIndex, "ReferenceItems").Value.Value
+			refType2 = (refItems2[0] << 8) + refItems2[1]
+			refIndex2 = (refItems2[2] << 8) + refItems2[3]
+			return self._CollectWaveformRefs(refType2, refIndex2, _seen=_seen)
+		if rt == ReferenceType.Sequence or rt == ReferenceType.LinkedSequence:
+			numTracks = self.Tables["Sequence"].GetRowField(refIndex, "NumTracks").Value
+			trackIndex = self.Tables["Sequence"].GetRowField(refIndex, "TrackIndex").Value.Value
+			refs = set()
+			for i in range(numTracks):
+				trackId = (trackIndex[2*i] << 8) + trackIndex[(2*i)+1]
+				refs |= self._CollectWaveformRefs(ReferenceType.Track.value, trackId, _seen=_seen)
+			return refs
+		if rt == ReferenceType.Track:
+			eventIndex = self.Tables["Track"].GetRowField(refIndex, "EventIndex").Value
+			cmdBytes = list(self.Tables["TrackEvent"].GetRowField(eventIndex, "Command").Value.Value)
+			refs = set()
+			while cmdBytes and cmdBytes != [0]:
+				cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
+				paramCount = cmdBytes.pop(0)
+				params = [cmdBytes.pop(0) for j in range(paramCount)]
+				if CommandType(cmdType) == CommandType.NoteOn:
+					refType2, refIndex2 = ParamsToArgs(params, [2, 2])
+					refs |= self._CollectWaveformRefs(refType2, refIndex2, _seen=_seen)
+				elif CommandType(cmdType) == CommandType.NoteOnWithNo:
+					refType2, refIndex2, _unk = ParamsToArgs(params, [2, 2, 2])
+					refs |= self._CollectWaveformRefs(refType2, refIndex2, _seen=_seen)
+			return refs
+		if rt == ReferenceType.LinkedCue:
+			linkRow = self.Tables["OutsideLink"].GetRowField(refIndex, "ReferenceIndex").Value
+			refType2 = self.Tables["OutsideLink"].GetRowField(refIndex, "ReferenceType").Value
+			return self._CollectWaveformRefs(refType2, linkRow, _seen=_seen)
+		return set()
+
 	def PrettyPrint(self):
 		for cueId in sorted(self.CueId2CueNameRow):
 			cueRow = self.CueId2CueRow[cueId]
@@ -239,7 +306,7 @@ class ACB:
 		else:
 			print("{}{} ({})".format(" "*(depth+2), CommandType(cmdType).name, ", ".join(str(p) for p in params)))
 
-	def RecursivelyGetReferences(self, refType, refIndex, depth=0, ind=0, printing=False, keycode=None, outputFormat=None, path="", extracting=False):
+	def RecursivelyGetReferences(self, refType, refIndex, depth=0, ind=0, printing=False, keycode=None, outputFormat=None, path="", extracting=False, standalone=False):
 		if ReferenceType(refType) == ReferenceType.Waveform:
 			streamingEnum = self.Tables["Waveform"].GetRowField(refIndex, "Streaming").Value
 			encodeType = self.Tables["Waveform"].GetRowField(refIndex, "EncodeType").Value
@@ -335,7 +402,7 @@ class ACB:
 			refItems2 = self.Tables["Synth"].GetRowField(refIndex, "ReferenceItems").Value.Value
 			refType2 = (refItems2[0] << 8) + refItems2[1]
 			refIndex2 = (refItems2[2] << 8) + refItems2[3]
-			self.RecursivelyGetReferences(refType2, refIndex2, depth=depth+1, ind=0, printing=printing, keycode=keycode, outputFormat=outputFormat, path=path, extracting=extracting)
+			self.RecursivelyGetReferences(refType2, refIndex2, depth=depth+1, ind=0, printing=printing, keycode=keycode, outputFormat=outputFormat, path=path, extracting=extracting, standalone=standalone)
 		elif ReferenceType(refType) == ReferenceType.Sequence or ReferenceType(refType) == ReferenceType.LinkedSequence:
 			seqType = self.Tables["Sequence"].GetRowField(refIndex, "Type").Value
 			pbr = self.Tables["Sequence"].GetRowField(refIndex, "PlaybackRatio").Value
@@ -362,7 +429,11 @@ class ACB:
 				trackId = (trackIndex[2*i] << 8) + trackIndex[(2*i)+1]
 				if printing and trackValues:
 					print("{}Track Value: {}".format(" "*(depth+1), (trackValues[2*i] << 8) + trackValues[(2*i)+1]))
-				self.RecursivelyGetReferences(ReferenceType.Track.value, trackId, depth=depth+1, ind=i, printing=printing, keycode=keycode, outputFormat=outputFormat, path=f"{path}.{i}", extracting=extracting)
+				if standalone:
+					track_path = path
+				else:
+					track_path = f"{path}.{i}"
+				self.RecursivelyGetReferences(ReferenceType.Track.value, trackId, depth=depth+1, ind=i, printing=printing, keycode=keycode, outputFormat=outputFormat, path=track_path, extracting=extracting, standalone=standalone)
 		elif ReferenceType(refType) == ReferenceType.Track:
 			eventIndex = self.Tables["Track"].GetRowField(refIndex, "EventIndex").Value
 			if printing:
@@ -381,22 +452,40 @@ class ACB:
 					self.PrintCmds(cmdBytes, depth=depth)
 			ind = 0
 			cmdBytes = list(self.Tables["TrackEvent"].GetRowField(eventIndex, "Command").Value.Value)
-			# ...ok, track events are more complicated than the rest so I'm leaving them independent for now....
+			note_total = None
+			if standalone:
+				tmp = list(cmdBytes)
+				count = 0
+				while tmp and tmp != [0]:
+					cmdType = (tmp.pop(0) << 8) + tmp.pop(0)
+					paramCount = tmp.pop(0)
+					params = [tmp.pop(0) for j in range(paramCount)]
+					if CommandType(cmdType) == CommandType.NoteOn or CommandType(cmdType) == CommandType.NoteOnWithNo:
+						count += 1
+				note_total = count
 			while cmdBytes and cmdBytes != [0]:
 				cmdType = (cmdBytes.pop(0) << 8) + cmdBytes.pop(0)
 				paramCount = cmdBytes.pop(0)
 				params = [cmdBytes.pop(0) for j in range(paramCount)]
 				if CommandType(cmdType) == CommandType.NoteOn:
 					refType2, refIndex2 = ParamsToArgs(params, [2, 2])
-					self.RecursivelyGetReferences(refType2, refIndex2, depth=depth+1, ind=ind, printing=printing, keycode=keycode, outputFormat=outputFormat, path=f"{path}.{ind}", extracting=extracting)
+					if standalone:
+						note_path = path
+					else:
+						note_path = f"{path}.{ind}"
+					self.RecursivelyGetReferences(refType2, refIndex2, depth=depth+1, ind=ind, printing=printing, keycode=keycode, outputFormat=outputFormat, path=note_path, extracting=extracting, standalone=standalone)
 					ind += 1
 				elif CommandType(cmdType) == CommandType.NoteOnWithNo:
 					refType2, refIndex2, unk = ParamsToArgs(params, [2, 2, 2])
-					self.RecursivelyGetReferences(refType2, refIndex2, depth=depth+1, ind=ind, printing=printing, keycode=keycode, outputFormat=outputFormat, path=f"{path}.{ind}", extracting=extracting)
+					if standalone:
+						note_path = path
+					else:
+						note_path = f"{path}.{ind}"
+					self.RecursivelyGetReferences(refType2, refIndex2, depth=depth+1, ind=ind, printing=printing, keycode=keycode, outputFormat=outputFormat, path=note_path, extracting=extracting, standalone=standalone)
 					ind += 1
 				elif printing and CommandType(cmdType) == CommandType.Delay:
 					milliseconds = ParamsToArgs(params, [4])[0]
-					print("{}{} = {} ms".format(" "*(depth+1), CommandType(cmdType).name, milliseconds))
+					print("{}Delay: {}ms".format(" "*(depth+1), milliseconds))
 				elif printing and CommandType(cmdType) == CommandType.LoopStart:
 					loopId, loopCount = ParamsToArgs(params, [2, 2])
 					if loopCount == 0xFFFF:
@@ -919,15 +1008,31 @@ class ACB:
 	def Extract(self, base_path, keycode=None, outputFormat=None, printing=False, nameByCue=False):
 		os.makedirs(base_path, exist_ok=True)
 		if nameByCue:
+			used_paths = set()
 			for cueId in sorted(self.CueId2CueNameRow):
 				cueRow = self.CueId2CueRow[cueId]
 				cueNameRow = self.CueId2CueNameRow[cueId]
 				cueName = self.Tables["CueName"].GetRowField(cueNameRow, "CueName").Value.Value
+				safeCueName = self._SanitizeFilename(cueName)
+				base_name = safeCueName
+				candidate = os.path.join(base_path, base_name)
+				if candidate in used_paths:
+					base_name = f"{safeCueName}_{cueId}"
+					candidate = os.path.join(base_path, base_name)
+				used_paths.add(candidate)
+				relatedWaveforms = self._GetCueRelatedWaveformCount(cueRow)
 				if printing:
 					print(f"Cue #{cueId}: {cueName}")
 				refType = self.Tables["Cue"].GetRowField(cueRow, "ReferenceType").Value
 				refIndex = self.Tables["Cue"].GetRowField(cueRow, "ReferenceIndex").Value
-				self.RecursivelyGetReferences(refType, refIndex, printing=printing, keycode=keycode, outputFormat=outputFormat, path=f"{base_path}/{cueId}.{cueName}", extracting=True)
+				if relatedWaveforms and relatedWaveforms > 1:
+					os.makedirs(candidate, exist_ok=True)
+					extract_path = os.path.join(candidate, base_name)
+					standalone = False
+				else:
+					extract_path = candidate
+					standalone = True
+				self.RecursivelyGetReferences(refType, refIndex, printing=printing, keycode=keycode, outputFormat=outputFormat, path=extract_path, extracting=True, standalone=standalone)
 				if printing:
 					print()
 		else:

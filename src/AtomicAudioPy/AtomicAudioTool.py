@@ -27,7 +27,7 @@ def main():
 	extract_parser.add_argument("-i", "-ic", "--input-acb-path", required=True, help="Path to ACB file to extract from.")
 	extract_parser.add_argument("-iw", "--input-awb-path", required=False, help="Path to streaming AWB file to extract from.")
 	extract_parser.add_argument("-o", "--output-directory", required=False, help="Optional output directory for extracted audio, which will be created if it doesn't already exist. If not provided, will create a directory of the same base path + name as the input ACB.")
-	extract_parser.add_argument("-n", "--name-by-cue", action=argparse.BooleanOptionalAction, help="If provided, will name extracted audio files by cue and track numbers. Otherwise, will name by AWB IDs.")
+	extract_parser.add_argument("-n", "--name-by-cue", action=argparse.BooleanOptionalAction, default=True, help="If provided, will name extracted audio files by cue and track numbers. Otherwise, will name by AWB IDs.")
 	extract_parser.add_argument("-k", "--key-code", type=int, required=False, help="If provided, will decrypt extracted ADX files.")
 	#extract_parser.add_argument("--output-format", required=False, help="If provided, will try to convert the extracted files to the specified audio format.")
 	extract_parser.add_argument("-p", "--print-info", action=argparse.BooleanOptionalAction, help="If provided, will print ACB info alongside extraction")
@@ -94,7 +94,7 @@ def main():
 		elif args.action == "extract_audio":
 			acb = ACB(args.input_acb_path, awbPath=args.input_awb_path)
 			if args.output_directory is None:
-				args.output_directory = str(Path(args.input_acb_path).with_suffix(""))
+				args.output_directory = str(Path(args.input_acb_path))
 			os.makedirs(args.output_directory, exist_ok=True)
 			acb.Extract(args.output_directory, keycode=args.key_code, printing=args.print_info, nameByCue=args.name_by_cue)
 	elif args.action == "replace_waveform" or args.action == "add_simple_cue" or args.action == "add_simple_track":
